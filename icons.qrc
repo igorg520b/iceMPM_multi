@@ -1,0 +1,24 @@
+<RCC>
+    <qresource prefix="/">
+        <file>gui/icons/but-quit.png</file>
+        <file>gui/icons/document-edit.svg</file>
+        <file>gui/icons/document-export.svg</file>
+        <file>gui/icons/document-import.svg</file>
+        <file>gui/icons/document-new.svg</file>
+        <file>gui/icons/document-save.svg</file>
+        <file>gui/icons/folder-documents-open.svg</file>
+        <file>gui/icons/folder-open.svg</file>
+        <file>gui/icons/go-first.svg</file>
+        <file>gui/icons/go-last.svg</file>
+        <file>gui/icons/go-next.svg</file>
+        <file>gui/icons/graph.svg</file>
+        <file>gui/icons/list-add.svg</file>
+        <file>gui/icons/list-remove.svg</file>
+        <file>gui/icons/media-playback-pause.svg</file>
+        <file>gui/icons/media-playback-start.svg</file>
+        <file>gui/icons/system-log-out.svg</file>
+        <file>gui/icons/open-file-folder-svgrepo-com.svg</file>
+        <file>gui/icons/save-svgrepo-com.svg</file>
+        <file>gui/icons/screenshot-svgrepo-com.svg</file>
+    </qresource>
+</RCC>
