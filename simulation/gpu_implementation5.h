@@ -28,16 +28,18 @@ class GPU_Implementation5
 {
 public:
     icy::Model *model;
+    std::vector<GPU_Partition> partitions;
+
+
     int error_code;
     std::function<void()> transfer_completion_callback;
 
-    void initialize();
-    void test();
+    void transfer_ponts_to_device();
+
     void synchronize(); // call before terminating the main thread
     void cuda_update_constants();
-    void cuda_allocate_arrays(size_t nGridNodes, size_t nPoints);
+    void cuda_allocate_arrays();
     void cuda_reset_grid();
-    void transfer_ponts_to_device();
     void cuda_p2g();
     void cuda_g2p(bool recordPQ);
     void cuda_update_nodes(double indenter_x, double indenter_y);
@@ -45,13 +47,12 @@ public:
 
     void cuda_transfer_from_device();
 
-    cudaEvent_t eventCycleStart, eventCycleStop;
-
-    double *tmp_transfer_buffer = nullptr; // buffer in page-locked memory for transferring the data between device and host
-    double *host_side_indenter_force_accumulator = nullptr;
+    // the size of this buffer (in the number of points) is stored in PointsHostBufferCapacity
+    double *points_host_buffer = nullptr; // buffer in page-locked memory for transferring the data between device and host
+    unsigned PointsHostBufferCapacity; // max number of points that the host-side buffer can hold
+    unsigned nPointsInHostBuffer;      // the number of points, including "disabled" ones, in the host buffer (may fluctuate)
 
 private:
-
 
     static void CUDART_CB callback_from_stream(cudaStream_t stream, cudaError_t status, void *userData);
 };

@@ -20,8 +20,8 @@ struct icy::SimParams
 {
 public:
     constexpr static double pi = 3.14159265358979323846;
-    constexpr static int dim = 2;
-    constexpr static int nGridArrays = 3;
+    constexpr static unsigned dim = 2;
+    constexpr static unsigned nGridArrays = 3;
 
     // index of the corresponding array in SoA
     constexpr static size_t idx_utility_data = 0;
@@ -33,7 +33,6 @@ public:
     constexpr static size_t Fe00 = velx + 2;
     constexpr static size_t Bp00 = Fe00 + 4;
     constexpr static size_t nPtsArrays = Bp00 + 4;
-
 
     unsigned n_indenter_subdivisions;
     unsigned tpb_P2G, tpb_Upd, tpb_G2P;  // threads per block for each operation
@@ -65,18 +64,15 @@ public:
 
     double ParticleVolume, ParticleMass, ParticleViewSize;
 
-
     double indenter_x, indenter_x_initial, indenter_y, indenter_y_initial;
     double Volume;  // total volume (area) of the object
     unsigned SetupType;  // 0 - ice block horizontal indentation; 1 - cone uniaxial compression
     double GrainVariability;
 
-    unsigned SortPointsByGridCell;
-
     // multi-GPU params
-    unsigned GridHaloSize;  // number of extra grid slices along the x-axis for incoming "halo" transfers
+    unsigned GridHaloSize;  // number of grid slices (perpendicular to the x-axis) for "halo" transfers
     double ExtraSpaceForIncomingPoints;     // percentage of points per partition
-    double PointsTransferBufferFraction;    // percentage of points per partition for "flying over" points
+    double PointsTransferBufferFraction;    // space for points that can "fly over" per simulation step
 
     unsigned nPartitions; // number of partitions (ideally, one partition per device)
 
@@ -87,9 +83,14 @@ public:
     void ComputeCamClayParams2();
     void ComputeHelperVariables();
     void ComputeIntegerBlockCoords();
-    double PointsPerCell() {return nPts/(Volume/(cellsize*cellsize));}
+    double PointsPerCell() {return nPtsTotal/(Volume/(cellsize*cellsize));}
     int AnimationFrameNumber() { return SimulationStep / UpdateEveryNthStep;}
     size_t IndenterArraySize() { return sizeof(double)*n_indenter_subdivisions*2; }
+
+    // grid cell from point's coordinates
+    int CellIdx(float x) { return (int)(x*cellsize_inv+0.5); }
+    int PointCellIndex(float x, float y) { return CellIdx(x)*GridY + CellIdx(y);}
+
 };
 
 #endif

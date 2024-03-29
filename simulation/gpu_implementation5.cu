@@ -2,9 +2,10 @@
 #include "parameters_sim.h"
 #include "point.h"
 #include "model.h"
-#include <stdio.h>
+
 #include <iostream>
 #include <vector>
+#include <algorithm>
 
 #include <Eigen/Core>
 #include <Eigen/LU>
@@ -16,8 +17,86 @@
 using namespace Eigen;
 
 
-constexpr double d = 2; // dimensions
-constexpr double coeff1 = 1.4142135623730950; // sqrt((6-d)/2.);
+
+
+
+void GPU_Implementation5::cuda_allocate_arrays()
+{
+    cudaError_t err;
+    const unsigned &nPts = model->prms.nPtsTotal;
+    const unsigned &nPartitions = model->prms.nPartitions;
+
+    PointsHostBufferCapacity = nPts * (1 + model->prms.ExtraSpaceForIncomingPoints);
+
+    // host-side buffer for points
+    cudaFreeHost(points_host_buffer);
+    err = cudaMallocHost(&points_host_buffer, sizeof(double)*PointsHostBufferCapacity*icy::SimParams::nPtsArrays);
+    if(err!=cudaSuccess) throw std::runtime_error("allocating host buffer for points");
+
+    // count available GPUs
+    int deviceCount = 0;
+    err = cudaGetDeviceCount(&deviceCount);
+    if (err != cudaSuccess) throw std::runtime_error("cudaGetDeviceCount error");
+    if(deviceCount == 0) throw std::runtime_error("No avaialble CUDA devices");
+
+    partitions.clear();
+
+    int whichDevice = 0;
+    unsigned points_counter = 0;
+    unsigned grid_x_cell_counter = 0;
+    const unsigned points_requested_per_partition = (nPts/nPartitions) * (1 + model->prms.ExtraSpaceForIncomingPoints);
+    partitions.resize(nPartitions);
+    for(int i=0;i<nPartitions;i++)
+    {
+        GPU_Partition &partition = partitions[i];
+        partition.initialize(whichDevice, i);
+        partition.allocate(points_requested_per_partition, model->prms.GridXTotal); // at this time, we allocate the full grid
+        whichDevice = (whichDevice+1)%deviceCount;  // spread partitions across the available devices
+    }
+    spdlog::info("GPU_Implementation: {} partitions; nPts {}; PointsHostBufferCapacity {}",
+                 nPartitions, nPts, PointsHostBufferCapacity);
+}
+
+
+void GPU_Implementation5::transfer_ponts_to_device()
+{
+    spdlog::info("GPU_Implementation: transfer_to_device()");
+
+    unsigned nPointsUploaded = 0;
+    const unsigned &nPartitions = model->prms.nPartitions;
+    unsigned GridOffset = 0;
+    // distribute points except of the last partition
+    for(int i=0;i<nPartitions-1;i++)
+    {
+        unsigned nPartitionsRemaining = nPartitions - i;
+        unsigned tentativePointCount = (nPointsInHostBuffer - nPointsUploaded)/nPartitionsRemaining;
+        unsigned tentativePointIndex = nPointsUploaded + tentativePointCount - 1;
+        Eigen::Vector2d pos = icy::Point::getPos(points_host_buffer, PointsHostBufferCapacity, tentativePointIndex);
+        int cellIndex = model->prms.CellIdx(pos.x());  // x-index of the cell; this will the be splitting line between partitions
+        // now let's find
+
+    }
+    // points that remain go into the last partition
+
+
+
+/*    int pitch = model->prms.nPtsPitch;
+    // transfer point data to device
+    cudaError_t err = cudaMemcpy(model->prms.pts_array, tmp_transfer_buffer,
+                                 pitch*sizeof(double)*icy::SimParams::nPtsArrays, cudaMemcpyHostToDevice);
+    if(err != cudaSuccess) throw std::runtime_error("transfer_points_to_device");
+
+    memset(host_side_indenter_force_accumulator, 0, model->prms.IndenterArraySize());
+
+*/
+    spdlog::info("GPU_Implementation: transfer_ponts_to_device() done");
+}
+
+
+
+
+/*
+
 
 __device__ Matrix2d KirchhoffStress_Wolper(const Matrix2d &F)
 {
@@ -111,13 +190,13 @@ __device__ void GetParametersForGrain(short grain, double &pmin, double &pmax, d
 
 __device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p)
 {
-    /*
-    const double &beta = gprms.NACC_beta;
-    const double &M_sq = gprms.NACC_Msq;
-    const double &pmin = -gprms.IceTensileStrength;
-    const double &pmax = gprms.IceCompressiveStrength;;
-    const double &qmax = gprms.IceShearStrength;
-    */
+
+//    const double &beta = gprms.NACC_beta;
+//    const double &M_sq = gprms.NACC_Msq;
+//    const double &pmin = -gprms.IceTensileStrength;
+//    const double &pmax = gprms.IceCompressiveStrength;;
+//    const double &qmax = gprms.IceShearStrength;
+
 
     double beta, M_sq, pmin, pmax, qmax;
     GetParametersForGrain(p.grain, pmin, pmax, qmax, beta, M_sq);
@@ -269,13 +348,13 @@ __global__ void v2_kernel_update_nodes(double indenter_x, double indenter_y)
     if(idx_x <= 2 && velocity[0]<0) velocity[0] = 0;
     else if(idx_x >= gridX-3 && velocity[0]>0) velocity[0] = 0;
 
-    /*
+
     // side boundary conditions
-    int blocksGridX = gprms.BlockLength*gprms.cellsize_inv+5-2;
-    int blocksGridY = gprms.BlockHeight/2*gprms.cellsize_inv+2;
-    if(idx_x >= blocksGridX && idx_x <= blocksGridX + 2 && idx_y < blocksGridY) velocity.setZero();
-    if(idx_x <= 7 && idx_x > 4 && idx_y < blocksGridY) velocity.setZero();
-*/
+//    int blocksGridX = gprms.BlockLength*gprms.cellsize_inv+5-2;
+//    int blocksGridY = gprms.BlockHeight/2*gprms.cellsize_inv+2;
+//    if(idx_x >= blocksGridX && idx_x <= blocksGridX + 2 && idx_y < blocksGridY) velocity.setZero();
+//    if(idx_x <= 7 && idx_x > 4 && idx_y < blocksGridY) velocity.setZero();
+
 
     // write the updated grid velocity back to memory
     gprms.grid_array[1*nGridPitch + idx] = velocity[0];
@@ -418,19 +497,6 @@ __device__ Matrix2d polar_decomp_R(const Matrix2d &val)
     return result;
 }
 
-__global__ void kernel_hello()
-{
-    printf("hello from CUDA\n");
-}
-
-
-void GPU_Implementation5::test()
-{
-    kernel_hello<<<1,1,0,streamCompute>>>();
-    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("cuda test");
-    else std::cout << "hello kernel executed successfully\n";
-    cudaDeviceSynchronize();
-}
 
 void GPU_Implementation5::synchronize()
 {
@@ -442,25 +508,6 @@ void GPU_Implementation5::synchronize()
 // ========================================= initialization and kernel execution
 
 
-void GPU_Implementation5::initialize()
-{
-    if(initialized) return;
-    cudaError_t err;
-    int deviceCount = 0;
-    err = cudaGetDeviceCount(&deviceCount);
-    if (err != cudaSuccess) throw std::runtime_error("initialize() cuda error");
-    if(deviceCount == 0) throw std::runtime_error("No avaialble CUDA devices");
-    cudaDeviceProp deviceProp;
-    cudaGetDeviceProperties(&deviceProp, 0);
-    spdlog::info("Compute capability {}.{}", deviceProp.major, deviceProp.minor);
-    cudaEventCreate(&eventCycleStart);
-    cudaEventCreate(&eventCycleStop);
-    err = cudaStreamCreate(&streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("GPU_Implementation3::initialize() cudaEventCreate");
-    initialized = true;
-    spdlog::info("GPU Implementation: prepared");
-}
-
 void GPU_Implementation5::cuda_update_constants()
 {
     cudaError_t err;
@@ -471,62 +518,8 @@ void GPU_Implementation5::cuda_update_constants()
     std::cout << "CUDA constants copied to device\n";
 }
 
-void GPU_Implementation5::cuda_allocate_arrays(size_t nGridNodes, size_t nPoints)
-{
-    if(!initialized) initialize();
-    cudaError_t err;
-
-    // host-side allocation
-    // pinned host memory
-    cudaFreeHost(tmp_transfer_buffer);
-    cudaFreeHost(host_side_indenter_force_accumulator);
-    // device memory for grid
-    cudaFree(model->prms.grid_array);
-    cudaFree(model->prms.pts_array);
-    cudaFree(model->prms.indenter_force_accumulator);
-
-    err = cudaMallocHost(&tmp_transfer_buffer, sizeof(double)*model->prms.nPtsPitch*icy::SimParams::nPtsArrays);
-    if(err!=cudaSuccess) throw std::runtime_error("cuda_allocate_arrays");
-
-    err = cudaMallocHost(&host_side_indenter_force_accumulator, model->prms.IndenterArraySize());
-    if(err!=cudaSuccess) throw std::runtime_error("cuda_allocate_arrays");
 
 
-
-    // device-side allocations are preformed per partition
-
-
-
-
-    err = cudaMallocPitch (&model->prms.grid_array, &model->prms.nGridPitch, sizeof(double)*nGridNodes, icy::SimParams::nGridArrays);
-    if(err != cudaSuccess) throw std::runtime_error("cuda_allocate_arrays");
-    model->prms.nGridPitch /= sizeof(double); // assume that this divides without remainder
-
-    // device memory for points
-    err = cudaMallocPitch (&model->prms.pts_array, &model->prms.nPtsPitch, sizeof(double)*nPoints, icy::SimParams::nPtsArrays);
-    if(err != cudaSuccess) throw std::runtime_error("cuda_allocate_arrays");
-    model->prms.nPtsPitch /= sizeof(double);
-
-    err = cudaMalloc(&model->prms.indenter_force_accumulator, model->prms.IndenterArraySize());
-    if(err != cudaSuccess) throw std::runtime_error("cuda_allocate_arrays");
-
-
-    error_code = 0;
-    spdlog::info("cuda_allocate_arrays done");
-}
-
-void GPU_Implementation5::transfer_ponts_to_device()
-{
-    spdlog::info("transfer_to_device()");
-    int pitch = model->prms.nPtsPitch;
-    // transfer point data to device
-    cudaError_t err = cudaMemcpy(model->prms.pts_array, tmp_transfer_buffer,
-                                 pitch*sizeof(double)*icy::SimParams::nPtsArrays, cudaMemcpyHostToDevice);
-    if(err != cudaSuccess) throw std::runtime_error("transfer_points_to_device");
-
-    memset(host_side_indenter_force_accumulator, 0, model->prms.IndenterArraySize());
-    spdlog::info("transfer_ponts_to_device() done");
-}
 
 void GPU_Implementation5::cuda_transfer_from_device()
 {
@@ -596,3 +589,4 @@ void GPU_Implementation5::cuda_g2p(bool recordPQ)
 }
 
 
+*/

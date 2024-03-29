@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.27)
 
 #set(CMAKE_CUDA_ARCHITECTURES "89")
 
-project(RHITA_MPM LANGUAGES CXX C CUDA)
+project(RHITA_MPM_multi LANGUAGES CXX C CUDA)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcudafe --diag_suppress=esa_on_defaulted_function_ignored -use_fast_maths")
@@ -32,7 +32,7 @@ endif()
 
 
 # CLI version
-add_executable(cm
+add_executable(cmm
     cli/main.cpp
 
     simulation/parameters_sim.h
@@ -53,28 +53,28 @@ add_executable(cm
     simulation/gpu_partition.cu
 )
 
-set_target_properties(cm PROPERTIES CUDA_ARCHITECTURES "80")
-set_target_properties(cm PROPERTIES CUDA_SEPARABLE_COMPILATION ON CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+set_target_properties(cmm PROPERTIES CUDA_ARCHITECTURES "80")
+set_target_properties(cmm PROPERTIES CUDA_SEPARABLE_COMPILATION ON CUDA_RESOLVE_DEVICE_SYMBOLS ON)
 
 # spdlog
 if (WIN32)
-    target_link_libraries(cm PRIVATE spdlog)
-    target_include_directories(cm PRIVATE "C:\\libraries\\spdlog\\include")
-    target_link_directories(cm PRIVATE "C:\\libraries\\spdlog-build\\Release")
+    target_link_libraries(cmm PRIVATE spdlog)
+    target_include_directories(cmm PRIVATE "C:\\libraries\\spdlog\\include")
+    target_link_directories(cmm PRIVATE "C:\\libraries\\spdlog-build\\Release")
 else()
-    target_link_libraries(cm PRIVATE spdlog::spdlog)
+    target_link_libraries(cmm PRIVATE spdlog::spdlog)
 endif()
 
-target_include_directories(cm PRIVATE simulation libraries/thinks/poisson_disk_sampling/)
-target_link_libraries(cm PRIVATE Eigen3::Eigen)
+target_include_directories(cmm PRIVATE simulation libraries/thinks/poisson_disk_sampling/)
+target_link_libraries(cmm PRIVATE Eigen3::Eigen)
 
 # HDF5
 if(WIN32)
-    target_link_directories(cm PRIVATE "C:\\libraries\\hdf5-build\\bin\\Release")
-    target_link_libraries(cm PRIVATE hdf5_cpp hdf5 )
+    target_link_directories(cmm PRIVATE "C:\\libraries\\hdf5-build\\bin\\Release")
+    target_link_libraries(cmm PRIVATE hdf5_cpp hdf5 )
 else()
-    target_link_libraries(cm PRIVATE ${HDF5_LIBRARIES})
-    target_include_directories(cm PRIVATE ${HDF5_INCLUDE_DIRS})
+    target_link_libraries(cmm PRIVATE ${HDF5_LIBRARIES})
+    target_include_directories(cmm PRIVATE ${HDF5_INCLUDE_DIRS})
 endif()
 
 
@@ -103,7 +103,7 @@ if(BUILD_GUI_VERSION)
     find_package(Qt5 COMPONENTS Widgets REQUIRED)
     add_compile_definitions(QT_NO_KEYWORDS)
 
-    add_executable(iceMPM_GUI
+    add_executable(iceMPM_GUI_m
         gui/main.cpp
 
         gui/windows/mainwindow.cpp
@@ -137,50 +137,50 @@ if(BUILD_GUI_VERSION)
         simulation/snapshotmanager.cpp
     )
 
-    set_target_properties(iceMPM_GUI PROPERTIES CUDA_ARCHITECTURES "80")
-    set_target_properties(iceMPM_GUI PROPERTIES CUDA_SEPARABLE_COMPILATION ON CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+    set_target_properties(iceMPM_GUI_m PROPERTIES CUDA_ARCHITECTURES "80")
+    set_target_properties(iceMPM_GUI_m PROPERTIES CUDA_SEPARABLE_COMPILATION ON CUDA_RESOLVE_DEVICE_SYMBOLS ON)
 
-    target_include_directories(iceMPM_GUI PRIVATE gui gui/windows gui/vtk simulation)
-    target_link_libraries(iceMPM_GUI PRIVATE Qt5::Widgets Qt5::Core)
+    target_include_directories(iceMPM_GUI_m PRIVATE gui gui/windows gui/vtk simulation)
+    target_link_libraries(iceMPM_GUI_m PRIVATE Qt5::Widgets Qt5::Core)
 
     # Eigen
     find_package(Eigen3 REQUIRED NO_MODULE HINTS "C:\\libraries\\eigen-build")
-    target_link_libraries(iceMPM_GUI PRIVATE Eigen3::Eigen)
+    target_link_libraries(iceMPM_GUI_m PRIVATE Eigen3::Eigen)
 
     # VTK
-    target_link_libraries(iceMPM_GUI PRIVATE ${VTK_LIBRARIES})
+    target_link_libraries(iceMPM_GUI_m PRIVATE ${VTK_LIBRARIES})
 
     #PBrowser
     if(WIN32)
-        target_link_directories(iceMPM_GUI PRIVATE "C:\\libraries\\pbrowser-build")
-        target_include_directories(iceMPM_GUI PRIVATE "C:\\libraries\\PBrowser")
-        target_include_directories(iceMPM_GUI PRIVATE "C:\\libraries\\PBrowser\\propertybrowser")
-        target_include_directories(iceMPM_GUI PRIVATE "C:\\libraries\\PBrowser\\objectpropertybrowser")
+        target_link_directories(iceMPM_GUI_m PRIVATE "C:\\libraries\\pbrowser-build")
+        target_include_directories(iceMPM_GUI_m PRIVATE "C:\\libraries\\PBrowser")
+        target_include_directories(iceMPM_GUI_m PRIVATE "C:\\libraries\\PBrowser\\propertybrowser")
+        target_include_directories(iceMPM_GUI_m PRIVATE "C:\\libraries\\PBrowser\\objectpropertybrowser")
     else()
-        target_link_directories(iceMPM_GUI PRIVATE "/home/s2/Projects-Libraries/build-PBrowser-Desktop_Qt_5_15_2_GCC_64bit-Release")
-        target_include_directories(iceMPM_GUI PRIVATE /home/s2/Projects-Libraries/PBrowser/objectpropertybrowser)
-        target_include_directories(iceMPM_GUI PRIVATE /home/s2/Projects-Libraries/PBrowser/propertybrowser)
-        target_include_directories(iceMPM_GUI PRIVATE /home/s2/Projects-Libraries/PBrowser)
+        target_link_directories(iceMPM_GUI_m PRIVATE "/home/s2/Projects-Libraries/build-PBrowser-Desktop_Qt_5_15_2_GCC_64bit-Release")
+        target_include_directories(iceMPM_GUI_m PRIVATE /home/s2/Projects-Libraries/PBrowser/objectpropertybrowser)
+        target_include_directories(iceMPM_GUI_m PRIVATE /home/s2/Projects-Libraries/PBrowser/propertybrowser)
+        target_include_directories(iceMPM_GUI_m PRIVATE /home/s2/Projects-Libraries/PBrowser)
     endif()
-    target_link_libraries(iceMPM_GUI PRIVATE PBrowser)
+    target_link_libraries(iceMPM_GUI_m PRIVATE PBrowser)
 
 
     # HDF5
     if(WIN32)
-        target_link_directories(iceMPM_GUI PRIVATE "C:\\libraries\\hdf5-build\\bin\\Release")
-        target_link_libraries(iceMPM_GUI PRIVATE hdf5_cpp hdf5 )
+        target_link_directories(iceMPM_GUI_m PRIVATE "C:\\libraries\\hdf5-build\\bin\\Release")
+        target_link_libraries(iceMPM_GUI_m PRIVATE hdf5_cpp hdf5 )
     else()
-        target_link_libraries(iceMPM_GUI PRIVATE ${HDF5_LIBRARIES})
-        target_include_directories(iceMPM_GUI PRIVATE ${HDF5_INCLUDE_DIRS})
+        target_link_libraries(iceMPM_GUI_m PRIVATE ${HDF5_LIBRARIES})
+        target_include_directories(iceMPM_GUI_m PRIVATE ${HDF5_INCLUDE_DIRS})
     endif()
 
     # spdlog
     if (WIN32)
-        target_link_libraries(iceMPM_GUI PRIVATE spdlog)
-        target_include_directories(iceMPM_GUI PRIVATE "C:\\libraries\\spdlog\\include")
-        target_link_directories(iceMPM_GUI PRIVATE "C:\\libraries\\spdlog-build\\Release")
+        target_link_libraries(iceMPM_GUI_m PRIVATE spdlog)
+        target_include_directories(iceMPM_GUI_m PRIVATE "C:\\libraries\\spdlog\\include")
+        target_link_directories(iceMPM_GUI_m PRIVATE "C:\\libraries\\spdlog-build\\Release")
     else()
-        target_link_libraries(iceMPM_GUI PRIVATE spdlog::spdlog)
+        target_link_libraries(iceMPM_GUI_m PRIVATE spdlog::spdlog)
     endif()
 
 
@@ -193,7 +193,7 @@ if(BUILD_GUI_VERSION)
     endif()
 ]]
 vtk_module_autoinit(
-  TARGETS iceMPM_GUI
+  TARGETS iceMPM_GUI_m
   MODULES ${VTK_LIBRARIES}
 )
 

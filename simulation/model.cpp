@@ -12,6 +12,7 @@ icy::Model::Model()
 
 bool icy::Model::Step()
 {
+    /*
     double simulation_time = prms.SimulationTime;
     std::cout << '\n';
     spdlog::info("step {} ({}) started; sim_time {:.3}", prms.SimulationStep, prms.SimulationStep/prms.UpdateEveryNthStep, simulation_time);
@@ -46,6 +47,8 @@ bool icy::Model::Step()
     prms.SimulationTime = simulation_time;
     prms.SimulationStep += count_unupdated_steps;
     return (prms.SimulationTime < prms.SimulationEndTime && !gpu.error_code);
+*/
+    return true;
 }
 
 
@@ -70,6 +73,6 @@ void icy::Model::Prepare()
 {
     spdlog::info("icy::Model::Prepare()");
     abortRequested = false;
-    gpu.cuda_update_constants();
+//    gpu.cuda_update_constants();
 }
 

@@ -10,8 +10,7 @@
 
 #include <functional>
 #include "parameters_sim.h"
-
-
+#include "point.h"
 
 
 
@@ -36,11 +35,12 @@ __device__ Eigen::Matrix2d dev(Eigen::Matrix2d A);
 
 struct GPU_Partition
 {
-    GPU_Partition(int device, int partition);
+    GPU_Partition();
+    ~GPU_Partition();
 
     void initialize(int device, int partition);
     void update_constants();
-    void allocate(unsigned n_points, unsigned gridx_partition, unsigned grid_x_offset);
+    void allocate(unsigned n_points_capacity, unsigned grid_x_capacity);
 
     // host-side data
     int PartitionID;
@@ -49,7 +49,7 @@ struct GPU_Partition
 
     size_t nPtsPitch, nGridPitch; // in number of elements(!), for coalesced access on the device
     unsigned nPts_partition;    // actual number of points
-    unsigned GridX_partition;   // x-dimension of the grid for current partition
+    unsigned GridX_partition;   // size of the portion of the grid for which this partition is "responsible"
     unsigned GridX_offset;      // index where the grid starts in this partition
     size_t VectorCapacity_transfer;   // vector capacity for points that fly to another partition
     size_t VectorCapacity_disabled;   // for "disabled" points (points from the middle of the list that flew away

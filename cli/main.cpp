@@ -27,7 +27,6 @@ int main(int argc, char** argv)
 
     // initialize the model
 
-    model.gpu.initialize();
     model.Reset();
     snapshot.model = &model;
 

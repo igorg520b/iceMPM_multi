@@ -4,11 +4,7 @@
 
 void icy::SimParams::Reset()
 {
-    grid_array = nullptr;
-    pts_array = nullptr;
-    indenter_force_accumulator = nullptr;
-
-    nPts = 0;
+    nPtsTotal = 0;
     n_indenter_subdivisions = 100;
 
     InitialTimeStep = 3.e-5;
@@ -46,7 +42,6 @@ void icy::SimParams::Reset()
     SetupType = 0;
     GrainVariability = 0.50;
 
-    SortPointsByGridCell = 1;
     GridHaloSize = 2;
     ExtraSpaceForIncomingPoints = 0.2;  // 20%
     PointsTransferBufferFraction = 0.02; // % of points that could "fly over" during a given cycle
@@ -75,7 +70,7 @@ std::string icy::SimParams::ParseFile(std::string fileName)
 
     if(doc.HasMember("InitialTimeStep")) InitialTimeStep = doc["InitialTimeStep"].GetDouble();
     if(doc.HasMember("YoungsModulus")) YoungsModulus = doc["YoungsModulus"].GetDouble();
-    if(doc.HasMember("GridXTotal")) GridXTotal = doc["GridXTotal"].GetUint();
+    if(doc.HasMember("GridX")) GridXTotal = doc["GridX"].GetUint();
     if(doc.HasMember("GridY")) GridY = doc["GridY"].GetUint();
     if(doc.HasMember("GridXDimension")) GridXDimension = doc["GridXDimension"].GetDouble();
     if(doc.HasMember("ParticleViewSize")) ParticleViewSize = doc["ParticleViewSize"].GetDouble();
@@ -98,10 +93,8 @@ std::string icy::SimParams::ParseFile(std::string fileName)
     if(doc.HasMember("tpb_P2G")) tpb_P2G = doc["tpb_P2G"].GetUint();
     if(doc.HasMember("tpb_Upd")) tpb_Upd = doc["tpb_Upd"].GetUint();
     if(doc.HasMember("tpb_G2P")) tpb_G2P = doc["tpb_G2P"].GetUint();
-    if(doc.HasMember("SortPointsByGridCell")) SortPointsByGridCell = doc["SortPointsByGridCell"].GetInt();
     if(doc.HasMember("GridHaloSize")) GridHaloSize = doc["GridHaloSize"].GetUint();
     if(doc.HasMember("nPartitions")) nPartitions = doc["nPartitions"].GetUint();
-
 
     ComputeCamClayParams2();
     ComputeHelperVariables();
@@ -131,11 +124,10 @@ void icy::SimParams::ComputeLame()
 void icy::SimParams::ComputeHelperVariables()
 {
     UpdateEveryNthStep = (int)(1.f/(200*InitialTimeStep));
-    cellsize = GridXDimension/GridX;
+    cellsize = GridXDimension/GridXTotal;
     cellsize_inv = 1./cellsize;
     Dp_inv = 4./(cellsize*cellsize);
     IndRSq = IndDiameter*IndDiameter/4.;
-    GridTotal = GridX*GridY;
 }
 
 void icy::SimParams::ComputeCamClayParams2()
