@@ -51,6 +51,8 @@ add_executable(cmm
     simulation/snapshotmanager.cpp
     simulation/gpu_partition.h
     simulation/gpu_partition.cu
+    simulation/host_side_soa.h
+    simulation/host_side_soa.cpp
 )
 
 set_target_properties(cmm PROPERTIES CUDA_ARCHITECTURES "80")
@@ -135,6 +137,9 @@ if(BUILD_GUI_VERSION)
 
         simulation/snapshotmanager.h
         simulation/snapshotmanager.cpp
+
+        simulation/host_side_soa.h
+        simulation/host_side_soa.cpp
     )
 
     set_target_properties(iceMPM_GUI_m PROPERTIES CUDA_ARCHITECTURES "80")

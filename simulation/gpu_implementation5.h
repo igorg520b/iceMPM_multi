@@ -48,9 +48,6 @@ public:
     void cuda_transfer_from_device();
 
     // the size of this buffer (in the number of points) is stored in PointsHostBufferCapacity
-    double *points_host_buffer = nullptr; // buffer in page-locked memory for transferring the data between device and host
-    unsigned PointsHostBufferCapacity; // max number of points that the host-side buffer can hold
-    unsigned nPointsInHostBuffer;      // the number of points, including "disabled" ones, in the host buffer (may fluctuate)
 
 private:
 
