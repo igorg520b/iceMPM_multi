@@ -8,8 +8,35 @@ __constant__ icy::SimParams gprms;
 
 icy::SimParams *GPU_Partition::prms;
 
+void GPU_Partition::transfer_points_from_soa_to_device(HostSideSOA &hssoa, unsigned point_idx_offset)
+{
+    cudaError_t err;
+    err = cudaSetDevice(Device);
+    if(err != cudaSuccess)
+    {
+        spdlog::critical("error setting the device {} in transfer points",Device);
+        throw std::runtime_error("transfer_points_from_soa_to_device");
+    }
+
+    // due to the layout of host-side SOA, we transfer the pts arrays one-by-one
+    for(int i=0;i<icy::SimParams::nPtsArrays;i++)
+    {
+        double *ptr_dst = pts_array + i*nPtsPitch;
+        double *ptr_src = hssoa.getPointerToLine(i)+point_idx_offset;
+        err = cudaMemcpyAsync(ptr_dst, ptr_src, nPts_partition*sizeof(double), cudaMemcpyHostToDevice, streamCompute);
+        if(err != cudaSuccess)
+        {
+            const char* errorString = cudaGetErrorString(err);
+            spdlog::critical("PID {}; line {}; nPts_partition {}, cuda error: {}",PartitionID, i, nPts_partition, errorString);
+            throw std::runtime_error("transfer_points_from_soa_to_device");
+        }
+    }
+}
+
+
 GPU_Partition::GPU_Partition()
 {
+    nPts_partition = GridX_partition = GridX_offset = 0;
     host_side_indenter_force_accumulator = nullptr;
     pts_array = nullptr;
     grid_array = nullptr;
@@ -66,6 +93,7 @@ void GPU_Partition::allocate(unsigned n_points_capacity, unsigned grid_x_capacit
     // host-side indenter accumulator
     cudaError_t err = cudaMallocHost(&host_side_indenter_force_accumulator, prms->IndenterArraySize());
     if(err!=cudaSuccess) throw std::runtime_error("GPU_Partition allocate host-side buffer");
+    memset(host_side_indenter_force_accumulator, 0, prms->IndenterArraySize());
 
     // indenter accumulator
     err = cudaMalloc(&indenter_force_accumulator, prms->IndenterArraySize());

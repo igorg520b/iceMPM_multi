@@ -20,7 +20,7 @@ using namespace Eigen;
 
 
 
-void GPU_Implementation5::cuda_allocate_arrays()
+void GPU_Implementation5::device_allocate_arrays()
 {
     cudaError_t err;
     const unsigned &nPts = model->prms.nPtsTotal;
@@ -48,10 +48,10 @@ void GPU_Implementation5::cuda_allocate_arrays()
     }
 }
 
-/*
 void GPU_Implementation5::transfer_ponts_to_device()
 {
-    spdlog::info("GPU_Implementation: transfer_to_device()");
+    spdlog::info("GPU_Implementation: transfer_to_device() start");
+    const double &hinv = model->prms.cellsize_inv;
 
     unsigned nPointsUploaded = 0;
     const unsigned &nPartitions = model->prms.nPartitions;
@@ -60,29 +60,34 @@ void GPU_Implementation5::transfer_ponts_to_device()
     for(int i=0;i<nPartitions-1;i++)
     {
         unsigned nPartitionsRemaining = nPartitions - i;
-        unsigned tentativePointCount = (nPointsInHostBuffer - nPointsUploaded)/nPartitionsRemaining;
-        unsigned tentativePointIndex = nPointsUploaded + tentativePointCount - 1;
-        Eigen::Vector2d pos = icy::Point::getPos(points_host_buffer, PointsHostBufferCapacity, tentativePointIndex);
-        int cellIndex = model->prms.CellIdx(pos.x());  // x-index of the cell; this will the be splitting line between partitions
-        // now let's find
+        unsigned tentativePointCount = (hssoa.size - nPointsUploaded)/nPartitionsRemaining;
+        int tentativePointIndex = nPointsUploaded + tentativePointCount - 1;
+        ProxyPoint &pt = *(hssoa.begin()+tentativePointIndex);
+        int cellsIdx = pt.getXIndex(hinv);
 
+        // find the index of the first point with x-index cellsIdx
+        unsigned pt_idx = hssoa.FindFirstPointAtGridXIndex(cellsIdx, hinv);
+//        int cellsIdx_f = (hssoa.begin()+(int)pt_idx)->getXIndex(hinv);
+        int cellsIdx_f = (*(hssoa.begin()+(int)pt_idx)).getXIndex(hinv);
+        partitions[i+1].GridX_offset = cellsIdx;
+        partitions[i].GridX_partition = cellsIdx-partitions[i].GridX_offset;
+        partitions[i].nPts_partition = pt_idx-nPointsUploaded;
+
+        spdlog::info("transfer partition {}; tentativePtIdx {}; pt_idx {}; cellsIdx_t {}; cellsIdx_f {}",
+                     i, tentativePointIndex, pt_idx, cellsIdx, cellsIdx_f);
+        partitions[i].transfer_points_from_soa_to_device(hssoa, nPointsUploaded);
+        nPointsUploaded = pt_idx;
     }
-    // points that remain go into the last partition
 
+    // last partition is a special case - remaining points go there and the grid extends to GridXTotal
+    GPU_Partition &p_last = partitions.back();
+    p_last.nPts_partition = hssoa.size - nPointsUploaded;
+    p_last.GridX_partition = model->prms.GridXTotal - p_last.GridX_offset;
+    p_last.transfer_points_from_soa_to_device(hssoa, nPointsUploaded);
 
-
-//    int pitch = model->prms.nPtsPitch;
-    // transfer point data to device
-//    cudaError_t err = cudaMemcpy(model->prms.pts_array, tmp_transfer_buffer,
-    //                             pitch*sizeof(double)*icy::SimParams::nPtsArrays, cudaMemcpyHostToDevice);
-  //  if(err != cudaSuccess) throw std::runtime_error("transfer_points_to_device");
-
-//    memset(host_side_indenter_force_accumulator, 0, model->prms.IndenterArraySize());
-
-
-    spdlog::info("GPU_Implementation: transfer_ponts_to_device() done");
+    spdlog::info("GPU_Implementation5::transfer_ponts_to_device() done");
 }
-*/
+
 
 
 

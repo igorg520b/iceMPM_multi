@@ -67,6 +67,7 @@ public:
     SOAIterator operator-(const difference_type& m) {SOAIterator r=*this;r.m_point.pos-=m;return r;}
     difference_type operator-(const SOAIterator& rawIterator){return m_point.pos-rawIterator.m_point.pos;}
     reference operator*() {return m_point;}
+//    pointer operator->() {return &m_point;}
 };
 
 
@@ -83,11 +84,12 @@ public:
 
     void Allocate(unsigned capacity);
     void RemoveDisabledAndSort(double hinv, unsigned GridY);
-    unsigned FindFirstPointAtGridXIndex(int index_grid_x, double hinv);
+    unsigned FindFirstPointAtGridXIndex(const int index_grid_x, const double hinv);
     void InitializeBlock(); // set the matrices that are supposed to be identity, i.e. Fe
 
     double* getPointerToPosX() {return host_buffer + capacity*icy::SimParams::posx;}
     double* getPointerToPosY() {return host_buffer + capacity*(icy::SimParams::posx+1);}
+    double* getPointerToLine(int idxLine) {return host_buffer + capacity*idxLine;}
 
     std::pair<Eigen::Vector2d, Eigen::Vector2d> getBlockDimensions();
     void offsetBlock(Eigen::Vector2d offset);

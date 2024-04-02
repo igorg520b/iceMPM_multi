@@ -46,7 +46,6 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     file.openDataSet("x").read(model->gpu.hssoa.getPointerToPosX(), H5::PredType::NATIVE_DOUBLE);
     file.openDataSet("y").read(model->gpu.hssoa.getPointerToPosY(), H5::PredType::NATIVE_DOUBLE);
     dataset_grains.read(model->gpu.hssoa.host_buffer, H5::PredType::NATIVE_UINT64);
-    model->gpu.hssoa.RemoveDisabledAndSort(model->prms.cellsize, model->prms.GridY);
 
     // read volume attribute
     H5::Attribute att_volume = dataset_grains.openAttribute("volume");
@@ -71,6 +70,7 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
 
     Eigen::Vector2d offset(x_offset, y_offset);
     model->gpu.hssoa.offsetBlock(offset);
+    model->gpu.hssoa.RemoveDisabledAndSort(model->prms.cellsize_inv, model->prms.GridY);
     model->gpu.hssoa.InitializeBlock();
 
     // set indenter starting position
@@ -94,9 +94,11 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     model->prms.ParticleVolume = model->prms.Volume/nPoints;
     model->prms.ParticleMass = model->prms.ParticleVolume * model->prms.Density;
 
+    // allocate GPU partitions
+    model->gpu.device_allocate_arrays();
 
     // transfer points to device(s)
-//    model->gpu.transfer_ponts_to_device();
+    model->gpu.transfer_ponts_to_device();
 /*
     model->Reset();
     model->Prepare();

@@ -34,11 +34,11 @@ public:
     int error_code;
     std::function<void()> transfer_completion_callback;
 
+    void device_allocate_arrays();
     void transfer_ponts_to_device();
 
     void synchronize(); // call before terminating the main thread
     void cuda_update_constants();
-    void cuda_allocate_arrays();
     void cuda_reset_grid();
     void cuda_p2g();
     void cuda_g2p(bool recordPQ);

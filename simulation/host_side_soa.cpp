@@ -28,13 +28,26 @@ void HostSideSOA::offsetBlock(Eigen::Vector2d offset)
 
 void HostSideSOA::RemoveDisabledAndSort(double hinv, unsigned GridY)
 {
+    spdlog::info("RemoveDisabledAndSort begin");
+//    for(auto it=begin();it!=end();++it) std::cout << it->getXIndex(hinv) << ", ";
+    std::cout << "\n\n\n" << std::endl;
     unsigned size_before = size;
+    spdlog::info("start removing");
     SOAIterator it_result = std::remove_if(begin(), end(), [](ProxyPoint &p){return p.getDisabledStatus();});
     size = it_result.m_point.pos;
+    spdlog::info("start sorting");
+    spdlog::info("RemoveDisabledAndSort: {} removed", size_before-size);
+//    std::sort(begin(), end(),
     std::sort(begin(), end(),
               [&hinv,&GridY](ProxyPoint &p1, ProxyPoint &p2)
-              {return p1.getCellIndex(hinv,GridY)<p2.getCellIndex(hinv,GridY);});
-    spdlog::info("RemoveDisabledAndSort: {} removed", size_before-size);
+//              {return p1.getCellIndex(hinv,GridY)<p2.getCellIndex(hinv,GridY);});
+//              {return p1.getXIndex(hinv)<p2.getXIndex(hinv);});
+              {return p1.getGrain()<p2.getGrain();});
+//    for(auto it=begin();it!=end();++it) std::cout << it->getXIndex(hinv) << ", ";
+    spdlog::info("sorting done");
+    std::cout << std::endl;
+    std::cout << hinv << std::endl;
+    spdlog::info("RemoveDisabledAndSort done");
 }
 
 
@@ -50,12 +63,17 @@ void HostSideSOA::Allocate(unsigned capacity)
     spdlog::info("HSSOA allocate capacity {} pt; toal {} Gb", capacity, (double)allocation_size/(1024.*1024.*1024.));
 }
 
-unsigned HostSideSOA::FindFirstPointAtGridXIndex(int index_grid_x, double hinv)
+unsigned HostSideSOA::FindFirstPointAtGridXIndex(const int index_grid_x, const double hinv)
 {
     SOAIterator it = std::lower_bound(begin(),end(),index_grid_x,
-                                      [hinv](const ProxyPoint &p, const float val)
+                                      [hinv](const ProxyPoint &p, const int val)
                                       {return p.getXIndex(hinv)<val;});
-    return it.m_point.pos;
+
+    unsigned result_pos = it.m_point.pos;
+    int xindex = it.m_point.getXIndex(hinv);
+    spdlog::info("FindFirstPointAtGridXIndex: index_grid_x {} at pos {}; found cell_index {}",
+                 index_grid_x, result_pos, xindex);
+    return result_pos;
 }
 
 

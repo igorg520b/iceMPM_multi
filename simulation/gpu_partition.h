@@ -11,7 +11,7 @@
 #include <functional>
 #include "parameters_sim.h"
 #include "point.h"
-
+#include "host_side_soa.h"
 
 
 __global__ void v2_kernel_p2g();
@@ -41,6 +41,7 @@ struct GPU_Partition
     void initialize(int device, int partition);
     void update_constants();
     void allocate(unsigned n_points_capacity, unsigned grid_x_capacity);
+    void transfer_points_from_soa_to_device(HostSideSOA &hssoa, unsigned point_idx_offset);
 
     // host-side data
     int PartitionID;
