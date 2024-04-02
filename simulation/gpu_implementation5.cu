@@ -26,13 +26,6 @@ void GPU_Implementation5::cuda_allocate_arrays()
     const unsigned &nPts = model->prms.nPtsTotal;
     const unsigned &nPartitions = model->prms.nPartitions;
 
-    PointsHostBufferCapacity = nPts * (1 + model->prms.ExtraSpaceForIncomingPoints);
-
-    // host-side buffer for points
-    cudaFreeHost(points_host_buffer);
-    err = cudaMallocHost(&points_host_buffer, sizeof(double)*PointsHostBufferCapacity*icy::SimParams::nPtsArrays);
-    if(err!=cudaSuccess) throw std::runtime_error("allocating host buffer for points");
-
     // count available GPUs
     int deviceCount = 0;
     err = cudaGetDeviceCount(&deviceCount);
@@ -53,11 +46,9 @@ void GPU_Implementation5::cuda_allocate_arrays()
         partition.allocate(points_requested_per_partition, model->prms.GridXTotal); // at this time, we allocate the full grid
         whichDevice = (whichDevice+1)%deviceCount;  // spread partitions across the available devices
     }
-    spdlog::info("GPU_Implementation: {} partitions; nPts {}; PointsHostBufferCapacity {}",
-                 nPartitions, nPts, PointsHostBufferCapacity);
 }
 
-
+/*
 void GPU_Implementation5::transfer_ponts_to_device()
 {
     spdlog::info("GPU_Implementation: transfer_to_device()");
@@ -80,18 +71,18 @@ void GPU_Implementation5::transfer_ponts_to_device()
 
 
 
-/*    int pitch = model->prms.nPtsPitch;
+//    int pitch = model->prms.nPtsPitch;
     // transfer point data to device
-    cudaError_t err = cudaMemcpy(model->prms.pts_array, tmp_transfer_buffer,
-                                 pitch*sizeof(double)*icy::SimParams::nPtsArrays, cudaMemcpyHostToDevice);
-    if(err != cudaSuccess) throw std::runtime_error("transfer_points_to_device");
+//    cudaError_t err = cudaMemcpy(model->prms.pts_array, tmp_transfer_buffer,
+    //                             pitch*sizeof(double)*icy::SimParams::nPtsArrays, cudaMemcpyHostToDevice);
+  //  if(err != cudaSuccess) throw std::runtime_error("transfer_points_to_device");
 
-    memset(host_side_indenter_force_accumulator, 0, model->prms.IndenterArraySize());
+//    memset(host_side_indenter_force_accumulator, 0, model->prms.IndenterArraySize());
 
-*/
+
     spdlog::info("GPU_Implementation: transfer_ponts_to_device() done");
 }
-
+*/
 
 
 

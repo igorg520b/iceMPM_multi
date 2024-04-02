@@ -24,7 +24,7 @@ public:
 
     const std::string directory_snapshots = "snapshots";
     const std::string directory_pq = "pq";
-    std::vector<double> buffer1, buffer2;
+//    std::vector<double> buffer1, buffer2;
 };
 
 #endif // SNAPSHOTWRITER_H

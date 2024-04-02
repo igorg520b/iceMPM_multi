@@ -28,67 +28,52 @@ void icy::SnapshotManager::SortPoints(std::vector<std::tuple<float,float,short>>
 
 void icy::SnapshotManager::LoadRawPoints(std::string fileName)
 {
-    spdlog::info("ReadRawPoints {}",fileName);
+    spdlog::info("reading raw points file {}",fileName);
     if(!std::filesystem::exists(fileName)) throw std::runtime_error("error reading raw points file - no file");;
 
-    spdlog::info("reading raw points file {}",fileName);
     H5::H5File file(fileName, H5F_ACC_RDONLY);
 
-    H5::DataSet dataset = file.openDataSet("Points_Raw_2D");
-    hsize_t dims[2] = {};
-    dataset.getSpace().getSimpleExtentDims(dims, NULL);
-    int nPoints = dims[0];
-    if(dims[1]!=icy::SimParams::dim) throw std::runtime_error("error reading raw points file - dimensions mismatch");
-    spdlog::info("dims[0] {}, dims[1] {}", dims[0], dims[1]);
+    H5::DataSet dataset_grains = file.openDataSet("llGrainIDs");
+    hsize_t nPoints;
+    dataset_grains.getSpace().getSimpleExtentDims(&nPoints, NULL);
     model->prms.nPtsTotal = nPoints;
 
-    std::vector<std::array<float, 2>> buffer;
-    buffer.resize(nPoints);
-    dataset.read(buffer.data(), H5::PredType::NATIVE_FLOAT);
+    // allocate space host-side
+    model->gpu.hssoa.Allocate(nPoints*(1+model->prms.ExtraSpaceForIncomingPoints));
+    model->gpu.hssoa.size = nPoints;
 
-    std::vector<short> grainIDs(nPoints);
-    H5::DataSet dataset_grains = file.openDataSet("GrainIDs");
-    dataset_grains.read(grainIDs.data(), H5::PredType::NATIVE_INT16);
+    // read
+    file.openDataSet("x").read(model->gpu.hssoa.getPointerToPosX(), H5::PredType::NATIVE_DOUBLE);
+    file.openDataSet("y").read(model->gpu.hssoa.getPointerToPosY(), H5::PredType::NATIVE_DOUBLE);
+    dataset_grains.read(model->gpu.hssoa.host_buffer, H5::PredType::NATIVE_UINT64);
+    model->gpu.hssoa.RemoveDisabledAndSort(model->prms.cellsize, model->prms.GridY);
 
-    std::vector<std::tuple<float,float,short>> tmpBuffer(nPoints);
-    for(int i=0;i<nPoints;i++)
-    {
-        std::tuple<float,float,short> t = std::make_tuple(buffer[i][0],buffer[i][1],grainIDs[i]);
-        tmpBuffer[i] = t;
-    }
-    SortPoints(tmpBuffer);
-    for(int i=0;i<nPoints;i++)
-    {
-        buffer[i][0] = std::get<0>(tmpBuffer[i]);
-        buffer[i][1] = std::get<1>(tmpBuffer[i]);
-        grainIDs[i] = std::get<2>(tmpBuffer[i]);
-    }
-
+    // read volume attribute
     H5::Attribute att_volume = dataset_grains.openAttribute("volume");
     float volume;
     att_volume.read(H5::PredType::NATIVE_FLOAT, &volume);
     model->prms.Volume = (double)volume;
     file.close();
 
-    auto result = std::minmax_element(buffer.begin(),buffer.end(), [](std::array<float, 2> &p1, std::array<float, 2> &p2){
-        return p1[0]<p2[0];});
-    model->prms.xmin = (*result.first)[0];
-    model->prms.xmax = (*result.second)[0];
-    const float length = model->prms.xmax - model->prms.xmin;
+    // get block dimensions
+    std::pair<Eigen::Vector2d, Eigen::Vector2d> boundaries = model->gpu.hssoa.getBlockDimensions();
+    model->prms.xmin = boundaries.first.x();
+    model->prms.ymin = boundaries.first.y();
+    model->prms.xmax = boundaries.second.x();
+    model->prms.ymax = boundaries.second.y();
 
-    result = std::minmax_element(buffer.begin(),buffer.end(), [](std::array<float, 2> &p1, std::array<float, 2> &p2){
-        return p1[1]<p2[1];});
-    model->prms.ymin = (*result.first)[1];
-    model->prms.ymax = (*result.second)[1];
-
-    model->prms.ComputeIntegerBlockCoords();
 
     const double &h = model->prms.cellsize;
     const double box_x = model->prms.GridXTotal*h;
-
+    const double length = model->prms.xmax - model->prms.xmin;
     const double x_offset = (box_x - length)/2;
     const double y_offset = 2*h;
 
+    Eigen::Vector2d offset(x_offset, y_offset);
+    model->gpu.hssoa.offsetBlock(offset);
+    model->gpu.hssoa.InitializeBlock();
+
+    // set indenter starting position
     const double block_left = x_offset;
     const double block_top = model->prms.ymax + y_offset;
 
@@ -96,7 +81,6 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     const double ht = r - model->prms.IndDepth;
     const double x_ind_offset = sqrt(r*r - ht*ht);
 
-    // set initial indenter position
     model->prms.indenter_x = floor((block_left-x_ind_offset)/h)*h;
     if(model->prms.SetupType == 0)
         model->prms.indenter_y = block_top + ht;
@@ -106,29 +90,18 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     model->prms.indenter_x_initial = model->prms.indenter_x;
     model->prms.indenter_y_initial = model->prms.indenter_y;
 
+    // particle volume and mass
     model->prms.ParticleVolume = model->prms.Volume/nPoints;
     model->prms.ParticleMass = model->prms.ParticleVolume * model->prms.Density;
 
-    model->gpu.cuda_allocate_arrays();
 
-    for(int k=0; k<nPoints; k++)
-    {
-        Point p;
-        p.Reset();
-        buffer[k][0] += x_offset;
-        buffer[k][1] += y_offset;
-        for(int i=0;i<icy::SimParams::dim;i++) p.pos[i] = buffer[k][i];
-        p.grain = (uint8_t)grainIDs[k];
-        p.TransferToBuffer(model->gpu.points_host_buffer, model->gpu.PointsHostBufferCapacity, k);
-    }
-    spdlog::info("raw points loaded");
-
-    model->gpu.nPointsInHostBuffer = nPoints;
-    model->gpu.transfer_ponts_to_device();
+    // transfer points to device(s)
+//    model->gpu.transfer_ponts_to_device();
 /*
     model->Reset();
     model->Prepare();
 */
+    spdlog::info("LoadRawPoints done; nPoitns {}",nPoints);
 }
 
 

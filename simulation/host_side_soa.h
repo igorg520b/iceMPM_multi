@@ -27,14 +27,14 @@ struct ProxyPoint
     ProxyPoint& operator=(const ProxyPoint &other);
 
     // access data
-    Eigen::Vector2d getPos();
+    double getValue(size_t valueIdx) const;   // valueIdx < nArrays
+    void setValue(size_t valueIdx, double value);
+    Eigen::Vector2d getPos() const;
     bool getCrushedStatus();
     bool getDisabledStatus();
-    uint8_t getGrain();
-    double getJp_inv();
-    std::pair<double,double> getPQ();
+    uint16_t getGrain();
     int getCellIndex(double hinv, unsigned GridY);  // index of the grid cell at the point's location
-    int getXIndex(double hinv);                     // x-index of the grid cell
+    int getXIndex(double hinv) const;                     // x-index of the grid cell
 };
 
 
@@ -49,9 +49,10 @@ public:
 
     ProxyPoint m_point;
 
-    SOAIterator(unsigned pos, float *soa_data, unsigned pitch);
+    SOAIterator(unsigned pos, double *soa_data, unsigned pitch);
     SOAIterator(const SOAIterator& other);
     SOAIterator& operator=(const SOAIterator& other);
+    SOAIterator() {};
 
     operator bool()const { return true; }
 
@@ -83,6 +84,13 @@ public:
     void Allocate(unsigned capacity);
     void RemoveDisabledAndSort(double hinv, unsigned GridY);
     unsigned FindFirstPointAtGridXIndex(int index_grid_x, double hinv);
+    void InitializeBlock(); // set the matrices that are supposed to be identity, i.e. Fe
+
+    double* getPointerToPosX() {return host_buffer + capacity*icy::SimParams::posx;}
+    double* getPointerToPosY() {return host_buffer + capacity*(icy::SimParams::posx+1);}
+
+    std::pair<Eigen::Vector2d, Eigen::Vector2d> getBlockDimensions();
+    void offsetBlock(Eigen::Vector2d offset);
 };
 
 #endif // HOSTSIDESOA_H

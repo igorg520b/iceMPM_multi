@@ -15,7 +15,7 @@
 #include <functional>
 
 
-
+#include "host_side_soa.h"
 
 
 namespace icy { class Model; }
@@ -29,7 +29,7 @@ class GPU_Implementation5
 public:
     icy::Model *model;
     std::vector<GPU_Partition> partitions;
-
+    HostSideSOA hssoa;
 
     int error_code;
     std::function<void()> transfer_completion_callback;

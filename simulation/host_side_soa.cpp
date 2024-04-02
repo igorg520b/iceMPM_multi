@@ -1,12 +1,36 @@
 #include "host_side_soa.h"
 
 
+
+std::pair<Eigen::Vector2d, Eigen::Vector2d> HostSideSOA::getBlockDimensions()
+{
+    Eigen::Vector2d result[2];
+    for(int k=0;k<2;k++)
+    {
+        std::pair<SOAIterator, SOAIterator> it_res = std::minmax_element(begin(), end(), [k](ProxyPoint &p1, ProxyPoint &p2) {return p1.getValue(icy::SimParams::posx+k)<p2.getValue(icy::SimParams::posx+k);});
+        result[0][k] = (*it_res.first).getValue(icy::SimParams::posx+k);
+        result[1][k] = (*it_res.second).getValue(icy::SimParams::posx+k);
+    }
+    return {result[0], result[1]};
+}
+
+void HostSideSOA::offsetBlock(Eigen::Vector2d offset)
+{
+    for(SOAIterator it = begin(); it!=end(); ++it)
+    {
+        ProxyPoint &p = *it;
+        Eigen::Vector2d pos = p.getPos();
+        pos += offset;
+        p.setValue(icy::SimParams::posx, pos.x());
+        p.setValue(icy::SimParams::posx+1, pos.y());
+    }
+}
+
 void HostSideSOA::RemoveDisabledAndSort(double hinv, unsigned GridY)
 {
     unsigned size_before = size;
     SOAIterator it_result = std::remove_if(begin(), end(), [](ProxyPoint &p){return p.getDisabledStatus();});
     size = it_result.m_point.pos;
-    const double &hinv =
     std::sort(begin(), end(),
               [&hinv,&GridY](ProxyPoint &p1, ProxyPoint &p2)
               {return p1.getCellIndex(hinv,GridY)<p2.getCellIndex(hinv,GridY);});
@@ -18,11 +42,61 @@ void HostSideSOA::Allocate(unsigned capacity)
 {
     cudaFreeHost(host_buffer);
     this->capacity = capacity;
-    cudaError_t err = cudaMallocHost(&points_host_buffer, sizeof(double)*capacity*icy::SimParams::nPtsArrays);
+    size_t allocation_size = sizeof(double)*capacity*icy::SimParams::nPtsArrays;
+    cudaError_t err = cudaMallocHost(&host_buffer, allocation_size);
     if(err!=cudaSuccess) throw std::runtime_error("allocating host buffer for points");
     size = 0;
+    memset(host_buffer, 0, allocation_size);
+    spdlog::info("HSSOA allocate capacity {} pt; toal {} Gb", capacity, (double)allocation_size/(1024.*1024.*1024.));
 }
 
+unsigned HostSideSOA::FindFirstPointAtGridXIndex(int index_grid_x, double hinv)
+{
+    SOAIterator it = std::lower_bound(begin(),end(),index_grid_x,
+                                      [hinv](const ProxyPoint &p, const float val)
+                                      {return p.getXIndex(hinv)<val;});
+    return it.m_point.pos;
+}
+
+
+void HostSideSOA::InitializeBlock()
+{
+    Eigen::Matrix2d identity = Eigen::Matrix2d::Identity();
+    for(SOAIterator it = begin(); it!=end(); ++it)
+    {
+        ProxyPoint &p = *it;
+
+        for(int i=0; i<icy::SimParams::dim; i++)
+            for(int j=0; j<icy::SimParams::dim; j++)
+                p.setValue(icy::SimParams::Fe00+i*2+j, identity(i,j));
+    }
+
+}
+
+
+/*
+void icy::Point::TransferToBuffer(double *buffer, const int pitch, const int point_index) const
+{
+    char* ptr_intact = (char*)(&buffer[pitch*icy::SimParams::idx_utility_data]);
+    ptr_intact[point_index] = crushed;
+
+    short* ptr_grain = (short*)(&ptr_intact[pitch]);
+    ptr_grain[point_index] = grain;
+
+    buffer[point_index + pitch*icy::SimParams::idx_Jp_inv] = Jp_inv;
+
+    for(int i=0; i<icy::SimParams::dim; i++)
+    {
+        buffer[point_index + pitch*(icy::SimParams::posx+i)] = pos[i];
+        buffer[point_index + pitch*(icy::SimParams::velx+i)] = velocity[i];
+        for(int j=0; j<icy::SimParams::dim; j++)
+        {
+            buffer[point_index + pitch*(icy::SimParams::Fe00 + i*icy::SimParams::dim + j)] = Fe(i,j);
+            buffer[point_index + pitch*(icy::SimParams::Bp00 + i*icy::SimParams::dim + j)] = Bp(i,j);
+        }
+    }
+}
+*/
 
 
 // ====================================================== ProxyPoint
@@ -69,7 +143,7 @@ ProxyPoint& ProxyPoint::operator=(const ProxyPoint &other)
     return *this;
 }
 
-Eigen::Vector2d ProxyPoint::getPos()
+Eigen::Vector2d ProxyPoint::getPos() const
 {
     Eigen::Vector2d result;
     if(isReference)
@@ -85,6 +159,25 @@ Eigen::Vector2d ProxyPoint::getPos()
     return result;
 }
 
+double ProxyPoint::getValue(size_t valueIdx) const
+{
+    if(isReference)
+        return soa[pos + pitch*valueIdx];
+    else
+        return data[valueIdx];
+}
+
+
+void ProxyPoint::setValue(size_t valueIdx, double value)
+{
+    if(isReference)
+        soa[pos + pitch*valueIdx] = value;
+    else
+        data[valueIdx] = value;
+}
+
+
+
 bool ProxyPoint::getCrushedStatus()
 {
     double dval;
@@ -97,7 +190,7 @@ bool ProxyPoint::getCrushedStatus()
         dval = data[icy::SimParams::idx_utility_data];
     }
     long long val = *reinterpret_cast<long long*>(&dval);
-    return (val & 0x1);
+    return (val & 0x10000);
 }
 
 bool ProxyPoint::getDisabledStatus()
@@ -112,10 +205,10 @@ bool ProxyPoint::getDisabledStatus()
         dval = data[icy::SimParams::idx_utility_data];
     }
     long long val = *reinterpret_cast<long long*>(&dval);
-    return (val & 0x2);
+    return (val & 0x20000);
 }
 
-uint8_t ProxyPoint::getGrain()
+uint16_t ProxyPoint::getGrain()
 {
     double dval;
     if(isReference)
@@ -127,38 +220,9 @@ uint8_t ProxyPoint::getGrain()
         dval = data[icy::SimParams::idx_utility_data];
     }
     long long val = *reinterpret_cast<long long*>(&dval);
-    return (val>>8) & 0xff;
+    return (val & 0xffff);
 }
 
-double ProxyPoint::getJp_inv()
-{
-    double result;
-    if(isReference)
-    {
-        result = soa[pos + pitch*icy::SimParams::idx_Jp_inv];
-    }
-    else
-    {
-        result = data[icy::SimParams::idx_Jp_inv];
-    }
-    return result;
-}
-
-std::pair<double,double> ProxyPoint::getPQ()
-{
-    double p,q;
-    if(isReference)
-    {
-        p = soa[pos + pitch*icy::SimParams::idx_P];
-        q = soa[pos + pitch*icy::SimParams::idx_Q];
-    }
-    else
-    {
-        p = data[icy::SimParams::idx_P];
-        q = data[icy::SimParams::idx_Q];
-    }
-    return {p,q};
-}
 
 
 int ProxyPoint::getCellIndex(double hinv, unsigned GridY)
@@ -168,17 +232,17 @@ int ProxyPoint::getCellIndex(double hinv, unsigned GridY)
     return idx[0]*GridY + idx[1];
 }
 
-int ProxyPoint::getXIndex(double hinv)
+int ProxyPoint::getXIndex(double hinv) const
 {
-    Eigen::Vector2d v = getPos();
-    int x_idx = (int)(v[0]*hinv + 0.5);
+    double x = getValue(icy::SimParams::posx);
+    int x_idx = (int)(x*hinv + 0.5);
     return x_idx;
 }
 
 
 // ==================================================== SOAIterator
 
-SOAIterator::SOAIterator(unsigned pos, float *soa_data, unsigned pitch)
+SOAIterator::SOAIterator(unsigned pos, double *soa_data, unsigned pitch)
 {
     m_point.isReference = true;
     m_point.pos = pos;
@@ -202,3 +266,4 @@ SOAIterator& SOAIterator::operator=(const SOAIterator& other)
     m_point.pitch = other.m_point.pitch;
     return *this;
 }
+
