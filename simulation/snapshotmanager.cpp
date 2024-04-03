@@ -99,10 +99,11 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
 
     // transfer points to device(s)
     model->gpu.transfer_ponts_to_device();
-/*
-    model->Reset();
-    model->Prepare();
-*/
+
+
+//    model->Reset();
+//    model->Prepare();
+
     spdlog::info("LoadRawPoints done; nPoitns {}",nPoints);
 }
 

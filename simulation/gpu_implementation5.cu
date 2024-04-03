@@ -62,8 +62,10 @@ void GPU_Implementation5::transfer_ponts_to_device()
         unsigned nPartitionsRemaining = nPartitions - i;
         unsigned tentativePointCount = (hssoa.size - nPointsUploaded)/nPartitionsRemaining;
         int tentativePointIndex = nPointsUploaded + tentativePointCount - 1;
-        ProxyPoint &pt = *(hssoa.begin()+tentativePointIndex);
+        SOAIterator it2 = hssoa.begin()+tentativePointIndex;
+        const ProxyPoint &pt = *it2;
         int cellsIdx = pt.getXIndex(hinv);
+        unsigned tentativePointIndex2 = pt.pos;
 
         // find the index of the first point with x-index cellsIdx
         unsigned pt_idx = hssoa.FindFirstPointAtGridXIndex(cellsIdx, hinv);
@@ -73,8 +75,8 @@ void GPU_Implementation5::transfer_ponts_to_device()
         partitions[i].GridX_partition = cellsIdx-partitions[i].GridX_offset;
         partitions[i].nPts_partition = pt_idx-nPointsUploaded;
 
-        spdlog::info("transfer partition {}; tentativePtIdx {}; pt_idx {}; cellsIdx_t {}; cellsIdx_f {}",
-                     i, tentativePointIndex, pt_idx, cellsIdx, cellsIdx_f);
+        spdlog::info("transfer partition {}; grid offset {}; grid size {}, npts {}",
+                     i, partitions[i].GridX_offset, partitions[i].GridX_partition, partitions[i].nPts_partition);
         partitions[i].transfer_points_from_soa_to_device(hssoa, nPointsUploaded);
         nPointsUploaded = pt_idx;
     }
@@ -83,9 +85,12 @@ void GPU_Implementation5::transfer_ponts_to_device()
     GPU_Partition &p_last = partitions.back();
     p_last.nPts_partition = hssoa.size - nPointsUploaded;
     p_last.GridX_partition = model->prms.GridXTotal - p_last.GridX_offset;
+    spdlog::info("transfer partition {}; grid offset {}; grid size {}, npts {}",
+                 partitions.size()-1, p_last.GridX_offset, p_last.GridX_partition, p_last.nPts_partition);
     p_last.transfer_points_from_soa_to_device(hssoa, nPointsUploaded);
+    nPointsUploaded += p_last.nPts_partition;
 
-    spdlog::info("GPU_Implementation5::transfer_ponts_to_device() done");
+    spdlog::info("transfer_ponts_to_device() done; uploaded {}",nPointsUploaded);
 }
 
 

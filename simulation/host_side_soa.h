@@ -54,10 +54,10 @@ public:
     SOAIterator& operator=(const SOAIterator& other);
     SOAIterator() {};
 
-    operator bool()const { return true; }
 
-    bool operator==(const SOAIterator& rawIterator)const{return (m_point.pos == rawIterator.m_point.pos);}
-    bool operator!=(const SOAIterator& rawIterator)const{return (m_point.pos != rawIterator.m_point.pos);}
+    bool operator<(const SOAIterator& t) const {return (m_point.pos<t.m_point.pos && m_point.soa==t.m_point.soa);}
+    bool operator==(const SOAIterator& t)const{return (m_point.pos == t.m_point.pos && m_point.soa==t.m_point.soa);}
+    bool operator!=(const SOAIterator& t)const{return (m_point.pos != t.m_point.pos || m_point.soa!=t.m_point.soa);}
 
     SOAIterator& operator+=(difference_type n) { m_point.pos+=n; return (*this); }
     SOAIterator& operator-=(difference_type n) { m_point.pos-=n; return (*this); }
@@ -67,7 +67,7 @@ public:
     SOAIterator operator-(const difference_type& m) {SOAIterator r=*this;r.m_point.pos-=m;return r;}
     difference_type operator-(const SOAIterator& rawIterator){return m_point.pos-rawIterator.m_point.pos;}
     reference operator*() {return m_point;}
-//    pointer operator->() {return &m_point;}
+    pointer operator->() {return &m_point;}
 };
 
 

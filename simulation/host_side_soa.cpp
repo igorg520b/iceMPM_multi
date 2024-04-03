@@ -28,22 +28,15 @@ void HostSideSOA::offsetBlock(Eigen::Vector2d offset)
 
 void HostSideSOA::RemoveDisabledAndSort(double hinv, unsigned GridY)
 {
-    spdlog::info("RemoveDisabledAndSort begin");
-//    for(auto it=begin();it!=end();++it) std::cout << it->getXIndex(hinv) << ", ";
-    std::cout << "\n\n\n" << std::endl;
+    spdlog::info("nPtsArrays {}",icy::SimParams::nPtsArrays);
     unsigned size_before = size;
-    spdlog::info("start removing");
     SOAIterator it_result = std::remove_if(begin(), end(), [](ProxyPoint &p){return p.getDisabledStatus();});
     size = it_result.m_point.pos;
-    spdlog::info("start sorting");
     spdlog::info("RemoveDisabledAndSort: {} removed", size_before-size);
-//    std::sort(begin(), end(),
     std::sort(begin(), end(),
               [&hinv,&GridY](ProxyPoint &p1, ProxyPoint &p2)
-//              {return p1.getCellIndex(hinv,GridY)<p2.getCellIndex(hinv,GridY);});
-//              {return p1.getXIndex(hinv)<p2.getXIndex(hinv);});
-              {return p1.getGrain()<p2.getGrain();});
-//    for(auto it=begin();it!=end();++it) std::cout << it->getXIndex(hinv) << ", ";
+              {return p1.getCellIndex(hinv,GridY)<p2.getCellIndex(hinv,GridY);});
+//    for(auto it=begin();it!=end();++it) std::cout << it->getCellIndex(hinv,GridY) << ", ";
     spdlog::info("sorting done");
     std::cout << std::endl;
     std::cout << hinv << std::endl;
@@ -71,8 +64,7 @@ unsigned HostSideSOA::FindFirstPointAtGridXIndex(const int index_grid_x, const d
 
     unsigned result_pos = it.m_point.pos;
     int xindex = it.m_point.getXIndex(hinv);
-    spdlog::info("FindFirstPointAtGridXIndex: index_grid_x {} at pos {}; found cell_index {}",
-                 index_grid_x, result_pos, xindex);
+//    spdlog::info("FindFirstPointAtGridXIndex: index_grid_x {} at pos {}; found cell_index {}", index_grid_x, result_pos, xindex);
     return result_pos;
 }
 
