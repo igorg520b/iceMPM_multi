@@ -45,7 +45,7 @@ add_executable(cmm
     simulation/givens.cuh
     simulation/helper_math.cuh
     simulation/gpu_implementation5.h
-    simulation/gpu_implementation5.cu
+    simulation/gpu_implementation5.cpp
 
     simulation/snapshotmanager.h
     simulation/snapshotmanager.cpp

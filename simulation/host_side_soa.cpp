@@ -63,7 +63,7 @@ unsigned HostSideSOA::FindFirstPointAtGridXIndex(const int index_grid_x, const d
                                       {return p.getXIndex(hinv)<val;});
 
     unsigned result_pos = it.m_point.pos;
-    int xindex = it.m_point.getXIndex(hinv);
+//    int xindex = it.m_point.getXIndex(hinv);
 //    spdlog::info("FindFirstPointAtGridXIndex: index_grid_x {} at pos {}; found cell_index {}", index_grid_x, result_pos, xindex);
     return result_pos;
 }

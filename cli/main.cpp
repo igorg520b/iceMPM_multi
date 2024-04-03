@@ -46,7 +46,7 @@ int main(int argc, char** argv)
         std::string pointCloudFile = model.prms.ParseFile(params_file);
         snapshot.LoadRawPoints(pointCloudFile);
     }
-
+/*
     // what to do once the data is available
     model.gpu.transfer_completion_callback = [&](){
         if(snapshot_thread.joinable()) snapshot_thread.join();
@@ -59,10 +59,13 @@ int main(int argc, char** argv)
             spdlog::info("callback {} done", snapshot_number);
         });
     };
-
+*/
     // ensure that the folder exists
     std::filesystem::path outputFolder(snapshot_directory);
     std::filesystem::create_directory(outputFolder);
+
+    model.Step();
+    model.gpu.synchronize();
 
     /*
     // start the simulation thread

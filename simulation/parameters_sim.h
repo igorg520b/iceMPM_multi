@@ -85,7 +85,7 @@ public:
     void ComputeIntegerBlockCoords();
     double PointsPerCell() {return nPtsTotal/(Volume/(cellsize*cellsize));}
     int AnimationFrameNumber() { return SimulationStep / UpdateEveryNthStep;}
-    size_t IndenterArraySize() { return sizeof(double)*n_indenter_subdivisions*2; }
+    size_t IndenterArraySize() { return sizeof(double)*n_indenter_subdivisions*dim; }
 
     // grid cell from point's coordinates
     int CellIdx(float x) { return (int)(x*cellsize_inv+0.5); }

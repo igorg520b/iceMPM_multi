@@ -12,13 +12,17 @@ icy::Model::Model()
 
 bool icy::Model::Step()
 {
-    /*
     double simulation_time = prms.SimulationTime;
     std::cout << '\n';
     spdlog::info("step {} ({}) started; sim_time {:.3}", prms.SimulationStep, prms.SimulationStep/prms.UpdateEveryNthStep, simulation_time);
-
     int count_unupdated_steps = 0;
-    gpu.cuda_reset_indenter_force_accumulator();
+
+    gpu.reset_indenter_force_accumulator();
+
+    gpu.reset_grid();
+
+    /*
+
     if(prms.SimulationStep % (prms.UpdateEveryNthStep*2) == 0) cudaEventRecord(gpu.eventCycleStart);
     do
     {
@@ -73,6 +77,6 @@ void icy::Model::Prepare()
 {
     spdlog::info("icy::Model::Prepare()");
     abortRequested = false;
-//    gpu.cuda_update_constants();
+    gpu.update_constants();
 }
 

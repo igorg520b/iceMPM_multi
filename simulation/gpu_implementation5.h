@@ -38,12 +38,13 @@ public:
     void transfer_ponts_to_device();
 
     void synchronize(); // call before terminating the main thread
-    void cuda_update_constants();
-    void cuda_reset_grid();
+    void update_constants();
+    void reset_grid();
+    void reset_indenter_force_accumulator();
+
     void cuda_p2g();
     void cuda_g2p(bool recordPQ);
     void cuda_update_nodes(double indenter_x, double indenter_y);
-    void cuda_reset_indenter_force_accumulator();
 
     void cuda_transfer_from_device();
 

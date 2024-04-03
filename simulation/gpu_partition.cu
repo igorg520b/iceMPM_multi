@@ -86,6 +86,7 @@ void GPU_Partition::initialize(int device, int partition)
     spdlog::info("Partition {}: initialized dev {}; compute {}.{}", PartitionID, Device,deviceProp.major, deviceProp.minor);
 }
 
+
 void GPU_Partition::allocate(unsigned n_points_capacity, unsigned grid_x_capacity)
 {
     cudaSetDevice(Device);
@@ -109,13 +110,13 @@ void GPU_Partition::allocate(unsigned n_points_capacity, unsigned grid_x_capacit
     VectorCapacity_transfer = n_points_capacity * prms->PointsTransferBufferFraction;
     for(int i=0;i<4;i++)
     {
-        err = cudaMalloc(&point_transfer_buffer[i], VectorCapacity_transfer*icy::SimParams::nPtsArrays*sizeof(double));
+        err = cudaMalloc(&point_transfer_buffer[i], (1+VectorCapacity_transfer*icy::SimParams::nPtsArrays)*sizeof(double));
         if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate");
     }
 
     // integer vector for disabled points
     VectorCapacity_disabled = n_points_capacity * prms->ExtraSpaceForIncomingPoints;
-    err = cudaMalloc(&_vector_data_disabled_points, VectorCapacity_disabled*sizeof(unsigned));
+    err = cudaMalloc(&_vector_data_disabled_points, (VectorCapacity_disabled+1)*sizeof(unsigned));
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate _vector_data_disabled_points");
 
     // grid
@@ -124,9 +125,24 @@ void GPU_Partition::allocate(unsigned n_points_capacity, unsigned grid_x_capacit
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate grid array");
     nGridPitch /= sizeof(double); // assume that this divides without remainder
 
-    spdlog::info("Partition {}-{}: allocated GridPitch {} ({}); Pts {}; Disabled {}; PtsTransfer {}",
-                 PartitionID, Device, nGridPitch, nGridPitch/prms->GridY, nPtsPitch, VectorCapacity_disabled, VectorCapacity_transfer);
+    spdlog::info("Partition {}-{}: allocated GridPitch {} ({}); Pts {}; Disabled {}; PtsTransfer {}; grid_size_local_requested {}",
+                 PartitionID, Device, nGridPitch, nGridPitch/prms->GridY, nPtsPitch, VectorCapacity_disabled, VectorCapacity_transfer, grid_size_local_requested);
 }
+
+
+void GPU_Partition::clear_utility_vectors()
+{
+    spdlog::info("P {} D {}, utility vectors clear",PartitionID,Device);
+    cudaSetDevice(Device);
+    cudaError_t err = cudaMemsetAsync(_vector_data_disabled_points, 0, sizeof(unsigned), streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("initialize_utility_vectors");
+    for(int i=0;i<4;i++)
+    {
+        cudaError_t err = cudaMemsetAsync(point_transfer_buffer[i], 0, sizeof(double), streamCompute);
+        if(err != cudaSuccess) throw std::runtime_error("initialize_utility_vectors");
+    }
+}
+
 
 void GPU_Partition::update_constants()
 {
@@ -136,4 +152,28 @@ void GPU_Partition::update_constants()
     err = cudaMemcpyToSymbol(gprms, prms, sizeof(icy::SimParams));
     if(err!=cudaSuccess) throw std::runtime_error("cuda_update_constants: gprms");
     spdlog::info("Constant symbols copied to device {}; partition {}", Device, PartitionID);
+}
+
+
+void GPU_Partition::reset_grid()
+{
+    cudaSetDevice(Device);
+
+    size_t gridArraySize = nGridPitch * icy::SimParams::nGridArrays * sizeof(double);
+    cudaError_t err = cudaMemsetAsync(grid_array, 0, gridArraySize, streamCompute);
+    if(err != cudaSuccess)
+    {
+        const char* errorString = cudaGetErrorString(err);
+        spdlog::critical("P {}; cuda_reset_grid error: {}",PartitionID, errorString);
+        spdlog::critical("nGridPitch {}; GridY {}; gridArraySize {}", nGridPitch, prms->GridY, gridArraySize);
+        throw std::runtime_error("cuda_reset_grid error");
+    }
+}
+
+
+void GPU_Partition::reset_indenter_force_accumulator()
+{
+    cudaSetDevice(Device);
+    cudaError_t err = cudaMemsetAsync(indenter_force_accumulator, 0, prms->IndenterArraySize(), streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("cuda_reset_grid error");
 }

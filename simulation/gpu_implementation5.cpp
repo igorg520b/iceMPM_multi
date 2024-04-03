@@ -65,12 +65,9 @@ void GPU_Implementation5::transfer_ponts_to_device()
         SOAIterator it2 = hssoa.begin()+tentativePointIndex;
         const ProxyPoint &pt = *it2;
         int cellsIdx = pt.getXIndex(hinv);
-        unsigned tentativePointIndex2 = pt.pos;
 
         // find the index of the first point with x-index cellsIdx
         unsigned pt_idx = hssoa.FindFirstPointAtGridXIndex(cellsIdx, hinv);
-//        int cellsIdx_f = (hssoa.begin()+(int)pt_idx)->getXIndex(hinv);
-        int cellsIdx_f = (*(hssoa.begin()+(int)pt_idx)).getXIndex(hinv);
         partitions[i+1].GridX_offset = cellsIdx;
         partitions[i].GridX_partition = cellsIdx-partitions[i].GridX_offset;
         partitions[i].nPts_partition = pt_idx-nPointsUploaded;
@@ -90,11 +87,39 @@ void GPU_Implementation5::transfer_ponts_to_device()
     p_last.transfer_points_from_soa_to_device(hssoa, nPointsUploaded);
     nPointsUploaded += p_last.nPts_partition;
 
+    for(int i=0;i<partitions.size();i++) partitions[i].clear_utility_vectors();
     spdlog::info("transfer_ponts_to_device() done; uploaded {}",nPointsUploaded);
 }
 
 
 
+void GPU_Implementation5::update_constants()
+{
+    spdlog::info("update_constants()");
+    for(GPU_Partition &p : partitions) p.update_constants();
+}
+
+
+void GPU_Implementation5::reset_grid()
+{
+    spdlog::info("reset_grid()");
+    for(int i=0;i<partitions.size();i++) partitions[i].reset_grid();
+}
+
+void GPU_Implementation5::reset_indenter_force_accumulator()
+{
+    spdlog::info("reset_indenter_force_accumulator()");
+    for(int i=0;i<partitions.size();i++) partitions[i].reset_indenter_force_accumulator();
+}
+
+void GPU_Implementation5::synchronize()
+{
+    for(int i=0;i<partitions.size();i++)
+    {
+        cudaSetDevice(partitions[i].Device);
+        cudaDeviceSynchronize();
+    }
+}
 
 /*
 
@@ -499,25 +524,12 @@ __device__ Matrix2d polar_decomp_R(const Matrix2d &val)
 }
 
 
-void GPU_Implementation5::synchronize()
-{
-    if(!initialized) return;
-    cudaDeviceSynchronize();
-}
+
 
 
 // ========================================= initialization and kernel execution
 
 
-void GPU_Implementation5::cuda_update_constants()
-{
-    cudaError_t err;
-    err = cudaMemcpyToSymbol(gpu_error_indicator, &error_code, sizeof(int));
-    if(err != cudaSuccess) throw std::runtime_error("gpu_error_indicator initialization");
-    err = cudaMemcpyToSymbol(gprms, &model->prms, sizeof(icy::SimParams));
-    if(err!=cudaSuccess) throw std::runtime_error("cuda_update_constants: gprms");
-    std::cout << "CUDA constants copied to device\n";
-}
 
 
 
@@ -548,18 +560,7 @@ void CUDART_CB GPU_Implementation5::callback_from_stream(cudaStream_t stream, cu
     if(gpu->transfer_completion_callback) gpu->transfer_completion_callback();
 }
 
-void GPU_Implementation5::cuda_reset_grid()
-{
-    cudaError_t err = cudaMemsetAsync(model->prms.grid_array, 0,
-                                      model->prms.nGridPitch*icy::SimParams::nGridArrays*sizeof(double), streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("cuda_reset_grid error");
-}
 
-void GPU_Implementation5::cuda_reset_indenter_force_accumulator()
-{
-    cudaError_t err = cudaMemsetAsync(model->prms.indenter_force_accumulator, 0, model->prms.IndenterArraySize(), streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("cuda_reset_grid error");
-}
 
 
 void GPU_Implementation5::cuda_p2g()

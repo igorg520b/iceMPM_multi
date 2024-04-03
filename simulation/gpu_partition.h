@@ -38,10 +38,17 @@ struct GPU_Partition
     GPU_Partition();
     ~GPU_Partition();
 
+    // preparation
     void initialize(int device, int partition);
-    void update_constants();
     void allocate(unsigned n_points_capacity, unsigned grid_x_capacity);
     void transfer_points_from_soa_to_device(HostSideSOA &hssoa, unsigned point_idx_offset);
+    void clear_utility_vectors();
+    void update_constants();
+
+    // calculation
+    void reset_grid();
+    void reset_indenter_force_accumulator();
+
 
     // host-side data
     int PartitionID;
