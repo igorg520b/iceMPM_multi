@@ -84,31 +84,6 @@ void HostSideSOA::InitializeBlock()
 }
 
 
-/*
-void icy::Point::TransferToBuffer(double *buffer, const int pitch, const int point_index) const
-{
-    char* ptr_intact = (char*)(&buffer[pitch*icy::SimParams::idx_utility_data]);
-    ptr_intact[point_index] = crushed;
-
-    short* ptr_grain = (short*)(&ptr_intact[pitch]);
-    ptr_grain[point_index] = grain;
-
-    buffer[point_index + pitch*icy::SimParams::idx_Jp_inv] = Jp_inv;
-
-    for(int i=0; i<icy::SimParams::dim; i++)
-    {
-        buffer[point_index + pitch*(icy::SimParams::posx+i)] = pos[i];
-        buffer[point_index + pitch*(icy::SimParams::velx+i)] = velocity[i];
-        for(int j=0; j<icy::SimParams::dim; j++)
-        {
-            buffer[point_index + pitch*(icy::SimParams::Fe00 + i*icy::SimParams::dim + j)] = Fe(i,j);
-            buffer[point_index + pitch*(icy::SimParams::Bp00 + i*icy::SimParams::dim + j)] = Bp(i,j);
-        }
-    }
-}
-*/
-
-
 // ====================================================== ProxyPoint
 ProxyPoint::ProxyPoint(const ProxyPoint &other)
 {
@@ -185,6 +160,38 @@ void ProxyPoint::setValue(size_t valueIdx, double value)
     else
         data[valueIdx] = value;
 }
+
+
+void ProxyPoint::setPartition(uint8_t PartitionID)
+{
+    // retrieve the existing value
+    double dval;
+    if(isReference)
+    {
+        dval = soa[pos + pitch*icy::SimParams::idx_utility_data];
+    }
+    else
+    {
+        dval = data[icy::SimParams::idx_utility_data];
+    }
+    long long val = *reinterpret_cast<long long*>(&dval);
+
+    long long _pid = (long long)PartitionID;
+    _pid <<= 24;
+    val |= _pid;
+
+    long long *ptr;
+    if(isReference)
+    {
+        ptr = (long long*)&soa[pos + pitch*icy::SimParams::idx_utility_data];
+    }
+    else
+    {
+        ptr = (long long*)&data[icy::SimParams::idx_utility_data];
+    }
+    *ptr = val;
+}
+
 
 
 

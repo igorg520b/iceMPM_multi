@@ -57,7 +57,7 @@ void GPU_Implementation5::transfer_ponts_to_device()
     const unsigned &nPartitions = model->prms.nPartitions;
     unsigned GridOffset = 0;
     // distribute points except of the last partition
-    for(int i=0;i<nPartitions-1;i++)
+    for(int i=0;i<nPartitions;i++)
     {
         unsigned nPartitionsRemaining = nPartitions - i;
         unsigned tentativePointCount = (hssoa.size - nPointsUploaded)/nPartitionsRemaining;
@@ -67,10 +67,23 @@ void GPU_Implementation5::transfer_ponts_to_device()
         int cellsIdx = pt.getXIndex(hinv);
 
         // find the index of the first point with x-index cellsIdx
-        unsigned pt_idx = hssoa.FindFirstPointAtGridXIndex(cellsIdx, hinv);
-        partitions[i+1].GridX_offset = cellsIdx;
+        unsigned pt_idx;
+        if(i==(nPartitions-1)) pt_idx = hssoa.size;
+        else
+        {
+            pt_idx = hssoa.FindFirstPointAtGridXIndex(cellsIdx, hinv);
+            partitions[i+1].GridX_offset = cellsIdx;
+        }
         partitions[i].GridX_partition = cellsIdx-partitions[i].GridX_offset;
         partitions[i].nPts_partition = pt_idx-nPointsUploaded;
+
+        // TODO: remove this loop if the operation is too slow
+#pragma omp parallel for
+        for(int j=nPointsUploaded;j<pt_idx;j++)
+        {
+            SOAIterator it = hssoa.begin()+j;
+            it->setPartition((uint8_t)i);
+        }
 
         spdlog::info("transfer partition {}; grid offset {}; grid size {}, npts {}",
                      i, partitions[i].GridX_offset, partitions[i].GridX_partition, partitions[i].nPts_partition);
@@ -78,19 +91,9 @@ void GPU_Implementation5::transfer_ponts_to_device()
         nPointsUploaded = pt_idx;
     }
 
-    // last partition is a special case - remaining points go there and the grid extends to GridXTotal
-    GPU_Partition &p_last = partitions.back();
-    p_last.nPts_partition = hssoa.size - nPointsUploaded;
-    p_last.GridX_partition = model->prms.GridXTotal - p_last.GridX_offset;
-    spdlog::info("transfer partition {}; grid offset {}; grid size {}, npts {}",
-                 partitions.size()-1, p_last.GridX_offset, p_last.GridX_partition, p_last.nPts_partition);
-    p_last.transfer_points_from_soa_to_device(hssoa, nPointsUploaded);
-    nPointsUploaded += p_last.nPts_partition;
-
     for(int i=0;i<partitions.size();i++) partitions[i].clear_utility_vectors();
     spdlog::info("transfer_ponts_to_device() done; uploaded {}",nPointsUploaded);
 }
-
 
 
 void GPU_Implementation5::update_constants()
@@ -119,6 +122,12 @@ void GPU_Implementation5::synchronize()
         cudaSetDevice(partitions[i].Device);
         cudaDeviceSynchronize();
     }
+}
+
+
+void GPU_Implementation5::p2g()
+{
+
 }
 
 /*
@@ -563,14 +572,7 @@ void CUDART_CB GPU_Implementation5::callback_from_stream(cudaStream_t stream, cu
 
 
 
-void GPU_Implementation5::cuda_p2g()
-{
-    const int nPoints = model->prms.nPts;
-    int tpb = model->prms.tpb_P2G;
-    int blocksPerGrid = (nPoints + tpb - 1) / tpb;
-    v2_kernel_p2g<<<blocksPerGrid, tpb, 0, streamCompute>>>();
-    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("cuda_p2g");
-}
+
 
 void GPU_Implementation5::cuda_update_nodes(double indenter_x, double indenter_y)
 {

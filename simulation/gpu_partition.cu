@@ -1,5 +1,7 @@
 #include "gpu_partition.h"
 
+using namespace Eigen;
+
 constexpr double d = 2; // dimensions
 constexpr double coeff1 = 1.4142135623730950; // sqrt((6-d)/2.);
 
@@ -176,4 +178,83 @@ void GPU_Partition::reset_indenter_force_accumulator()
     cudaSetDevice(Device);
     cudaError_t err = cudaMemsetAsync(indenter_force_accumulator, 0, prms->IndenterArraySize(), streamCompute);
     if(err != cudaSuccess) throw std::runtime_error("cuda_reset_grid error");
+}
+
+
+void GPU_Partition::p2g()
+{
+    cudaSetDevice(Device);
+
+    const unsigned &n = nPts_partition;
+    const unsigned &tpb = prms->tpb_P2G;
+    const unsigned blocksPerGrid = (n + tpb - 1) / tpb;
+
+//    partition_kernel_p2g<<<blocksPerGrid, tpb, 0, streamCompute>>>();
+//    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("cuda_p2g");
+
+}
+
+// TODO: fix this function and add offset to the grid pointer (so that there are two halo regions on the left)
+
+__global__ void v2_kernel_p2g(const unsigned gridX, const unsigned gridX_offset, const unsigned grid_pitch,
+                              const unsigned points_count, const unsigned points_pitch, const double *points_buffer,
+                              const double *grid_buffer)
+{
+    int pt_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(pt_idx >= points_count) return;
+
+    const double &dt = gprms.InitialTimeStep;
+    const double &vol = gprms.ParticleVolume;
+    const double &h = gprms.cellsize;
+    const double &h_inv = gprms.cellsize_inv;
+    const double &Dinv = gprms.Dp_inv;
+    const unsigned &gridY = gprms.GridY;
+    const double &particle_mass = gprms.ParticleMass;
+
+    // pull point data from SOA
+    Vector2d pos, velocity;
+    Matrix2d Bp, Fe;
+
+    for(int i=0; i<icy::SimParams::dim; i++)
+    {
+        pos[i] = buffer[pt_idx + pitch*(icy::SimParams::posx+i)];
+        velocity[i] = buffer[pt_idx + pitch*(icy::SimParams::velx+i)];
+        for(int j=0; j<icy::SimParams::dim; j++)
+        {
+            Fe(i,j) = buffer[pt_idx + pitch*(icy::SimParams::Fe00 + i*icy::SimParams::dim + j)];
+            Bp(i,j) = buffer[pt_idx + pitch*(icy::SimParams::Bp00 + i*icy::SimParams::dim + j)];
+        }
+    }
+
+    Matrix2d PFt = KirchhoffStress_Wolper(Fe);
+    Matrix2d subterm2 = particle_mass*Bp - (dt*vol*Dinv)*PFt;
+
+    Eigen::Vector2i base_coord_i = (pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // coords of base grid node for point
+    Vector2d base_coord = base_coord_i.cast<double>();
+    Vector2d fx = pos*h_inv - base_coord;
+
+    // optimized method of computing the quadratic (!) weight function (no conditional operators)
+    Array2d arr_v0 = 1.5-fx.array();
+    Array2d arr_v1 = fx.array() - 1.0;
+    Array2d arr_v2 = fx.array() - 0.5;
+    Array2d ww[3] = {0.5*arr_v0*arr_v0, 0.75-arr_v1*arr_v1, 0.5*arr_v2*arr_v2};
+
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+        {
+            double Wip = ww[i][0]*ww[j][1];
+            Vector2d dpos((i-fx[0])*h, (j-fx[1])*h);
+            Vector2d incV = Wip*(velocity*particle_mass + subterm2*dpos);
+            double incM = Wip*particle_mass;
+
+            int i2 = i+base_coord_i[0];
+            int j2 = j+base_coord_i[1];
+            int idx_gridnode = (i+base_coord_i[0]) + (j+base_coord_i[1])*gridX;
+            if(i2<0 || j2<0 || i2>=gridX || j2>=gridY) gpu_error_indicator = 1;
+
+            // Udpate mass, velocity and force
+            atomicAdd(&gprms.grid_array[0*nGridPitch + idx_gridnode], incM);
+            atomicAdd(&gprms.grid_array[1*nGridPitch + idx_gridnode], incV[0]);
+            atomicAdd(&gprms.grid_array[2*nGridPitch + idx_gridnode], incV[1]);
+        }
 }

@@ -14,7 +14,7 @@
 #include "host_side_soa.h"
 
 
-__global__ void v2_kernel_p2g();
+__global__ void partition_kernel_p2g();
 __global__ void v2_kernel_g2p(bool recordPQ);
 __global__ void v2_kernel_update_nodes(double indenter_x, double indenter_y);
 
@@ -48,6 +48,7 @@ struct GPU_Partition
     // calculation
     void reset_grid();
     void reset_indenter_force_accumulator();
+    void p2g();
 
 
     // host-side data
@@ -56,7 +57,7 @@ struct GPU_Partition
     static icy::SimParams *prms;
 
     size_t nPtsPitch, nGridPitch; // in number of elements(!), for coalesced access on the device
-    unsigned nPts_partition;    // actual number of points
+    unsigned nPts_partition;    // actual number of points (including disabled)
     unsigned GridX_partition;   // size of the portion of the grid for which this partition is "responsible"
     unsigned GridX_offset;      // index where the grid starts in this partition
     size_t VectorCapacity_transfer;   // vector capacity for points that fly to another partition

@@ -20,6 +20,7 @@ bool icy::Model::Step()
     gpu.reset_indenter_force_accumulator();
 
     gpu.reset_grid();
+    gpu.p2g();
 
     /*
 

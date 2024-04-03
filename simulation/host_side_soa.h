@@ -35,6 +35,7 @@ struct ProxyPoint
     uint16_t getGrain();
     int getCellIndex(double hinv, unsigned GridY);  // index of the grid cell at the point's location
     int getXIndex(double hinv) const;                     // x-index of the grid cell
+    void setPartition(uint8_t PartitionID);
 };
 
 

@@ -42,7 +42,8 @@ public:
     void reset_grid();
     void reset_indenter_force_accumulator();
 
-    void cuda_p2g();
+    void p2g();
+
     void cuda_g2p(bool recordPQ);
     void cuda_update_nodes(double indenter_x, double indenter_y);
 
