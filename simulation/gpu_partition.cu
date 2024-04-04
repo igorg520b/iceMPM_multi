@@ -10,6 +10,38 @@ __constant__ icy::SimParams gprms;
 
 icy::SimParams *GPU_Partition::prms;
 
+double* GPU_Partition::getHaloAddress(int whichHalo, int whichGridArray)
+{
+    if(whichHalo == 0)
+    {
+        // left halo
+        return grid_array + (prms->GridY * prms->GridHaloSize*2) + whichGridArray*nGridPitch;
+    }
+    else if(whichHalo == 1)
+    {
+        // right halo
+        return grid_array + prms->GridY * (GridX_partition + 3*prms->GridHaloSize) + whichGridArray*nGridPitch;
+    }
+    else throw std::runtime_error("getHaloAddress");
+}
+
+double* GPU_Partition::getHaloReceiveAddress(int whichHalo, int whichGridArray)
+{
+    if(whichHalo == 0)
+    {
+        // left halo
+        return grid_array + (prms->GridY * prms->GridHaloSize*0) + whichGridArray*nGridPitch;
+    }
+    else if(whichHalo == 1)
+    {
+        // right halo
+        return grid_array + (prms->GridY * prms->GridHaloSize*1) + whichGridArray*nGridPitch;
+    }
+    else throw std::runtime_error("getHaloReceiveAddress");
+}
+
+
+
 void GPU_Partition::transfer_points_from_soa_to_device(HostSideSOA &hssoa, unsigned point_idx_offset)
 {
     cudaError_t err;
@@ -184,32 +216,35 @@ void GPU_Partition::reset_indenter_force_accumulator()
 void GPU_Partition::p2g()
 {
     cudaSetDevice(Device);
-
     const unsigned &n = nPts_partition;
     const unsigned &tpb = prms->tpb_P2G;
     const unsigned blocksPerGrid = (n + tpb - 1) / tpb;
-
-//    partition_kernel_p2g<<<blocksPerGrid, tpb, 0, streamCompute>>>();
-//    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("cuda_p2g");
-
+    partition_kernel_p2g<<<blocksPerGrid, tpb, 0, streamCompute>>>(GridX_partition, GridX_offset, nGridPitch,
+                         nPts_partition, nPtsPitch, pts_array, grid_array);
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("p2g kernel");
 }
 
-// TODO: fix this function and add offset to the grid pointer (so that there are two halo regions on the left)
 
-__global__ void v2_kernel_p2g(const unsigned gridX, const unsigned gridX_offset, const unsigned grid_pitch,
-                              const unsigned points_count, const unsigned points_pitch, const double *points_buffer,
-                              const double *grid_buffer)
+__global__ void partition_kernel_p2g(const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
+                              const unsigned count_pts, const unsigned pitch_pts,
+                              const double *buffer_pts, double *buffer_grid)
 {
     int pt_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if(pt_idx >= points_count) return;
+    if(pt_idx >= count_pts) return;
+
+    const long long* ptr = reinterpret_cast<const long long*>(&buffer_pts[pitch_pts*icy::SimParams::idx_utility_data]);
+    long long utility_data = ptr[pt_idx];
+    if(utility_data & 0x20000) return; // point is disabled
 
     const double &dt = gprms.InitialTimeStep;
     const double &vol = gprms.ParticleVolume;
     const double &h = gprms.cellsize;
     const double &h_inv = gprms.cellsize_inv;
     const double &Dinv = gprms.Dp_inv;
-    const unsigned &gridY = gprms.GridY;
     const double &particle_mass = gprms.ParticleMass;
+
+    const unsigned &gridY = gprms.GridY;
+    const int &halo = gprms.GridHaloSize;
 
     // pull point data from SOA
     Vector2d pos, velocity;
@@ -217,17 +252,17 @@ __global__ void v2_kernel_p2g(const unsigned gridX, const unsigned gridX_offset,
 
     for(int i=0; i<icy::SimParams::dim; i++)
     {
-        pos[i] = buffer[pt_idx + pitch*(icy::SimParams::posx+i)];
-        velocity[i] = buffer[pt_idx + pitch*(icy::SimParams::velx+i)];
+        pos[i] = buffer_pts[pt_idx + pitch_pts*(icy::SimParams::posx+i)];
+        velocity[i] = buffer_pts[pt_idx + pitch_pts*(icy::SimParams::velx+i)];
         for(int j=0; j<icy::SimParams::dim; j++)
         {
-            Fe(i,j) = buffer[pt_idx + pitch*(icy::SimParams::Fe00 + i*icy::SimParams::dim + j)];
-            Bp(i,j) = buffer[pt_idx + pitch*(icy::SimParams::Bp00 + i*icy::SimParams::dim + j)];
+            Fe(i,j) = buffer_pts[pt_idx + pitch_pts*(icy::SimParams::Fe00 + i*icy::SimParams::dim + j)];
+            Bp(i,j) = buffer_pts[pt_idx + pitch_pts*(icy::SimParams::Bp00 + i*icy::SimParams::dim + j)];
         }
     }
 
     Matrix2d PFt = KirchhoffStress_Wolper(Fe);
-    Matrix2d subterm2 = particle_mass*Bp - (dt*vol*Dinv)*PFt;
+    Matrix2d subterm2 = particle_mass*Bp - (gprms.dt_vol_Dpinv)*PFt;
 
     Eigen::Vector2i base_coord_i = (pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // coords of base grid node for point
     Vector2d base_coord = base_coord_i.cast<double>();
@@ -247,14 +282,40 @@ __global__ void v2_kernel_p2g(const unsigned gridX, const unsigned gridX_offset,
             Vector2d incV = Wip*(velocity*particle_mass + subterm2*dpos);
             double incM = Wip*particle_mass;
 
-            int i2 = i+base_coord_i[0];
+            // the x-index of the cell takes into accout the partition's offset of the gird fragment
+            int i2 = i+base_coord_i[0]-gridX_offset;
             int j2 = j+base_coord_i[1];
-            int idx_gridnode = (i+base_coord_i[0]) + (j+base_coord_i[1])*gridX;
-            if(i2<0 || j2<0 || i2>=gridX || j2>=gridY) gpu_error_indicator = 1;
+            if(i2<(-halo) || j2<0 || i2>=(gridX+halo) || j2>=gridY) gpu_error_indicator = 1;
+            int idx_gridnode = j2 + (i2+halo*3)*gridY;  // two halo lines are reserved for the incoming halo data
 
             // Udpate mass, velocity and force
-            atomicAdd(&gprms.grid_array[0*nGridPitch + idx_gridnode], incM);
-            atomicAdd(&gprms.grid_array[1*nGridPitch + idx_gridnode], incV[0]);
-            atomicAdd(&gprms.grid_array[2*nGridPitch + idx_gridnode], incV[1]);
+            atomicAdd(&buffer_grid[0*pitch_grid + idx_gridnode], incM);
+            atomicAdd(&buffer_grid[1*pitch_grid + idx_gridnode], incV[0]);
+            atomicAdd(&buffer_grid[2*pitch_grid + idx_gridnode], incV[1]);
         }
 }
+
+
+__device__ Matrix2d KirchhoffStress_Wolper(const Matrix2d &F)
+{
+    const double &kappa = gprms.kappa;
+    const double &mu = gprms.mu;
+
+    // Kirchhoff stress as per Wolper (2019)
+    double Je = F.determinant();
+    Matrix2d b = F*F.transpose();
+    Matrix2d PFt = mu*(1/Je)*dev(b) + kappa*(Je*Je-1.)*Matrix2d::Identity();
+    return PFt;
+}
+
+// deviatoric part of a diagonal matrix
+__device__ Vector2d dev_d(Vector2d Adiag)
+{
+    return Adiag - Adiag.sum()/2*Vector2d::Constant(1.);
+}
+
+__device__ Eigen::Matrix2d dev(Eigen::Matrix2d A)
+{
+    return A - A.trace()/2*Eigen::Matrix2d::Identity();
+}
+

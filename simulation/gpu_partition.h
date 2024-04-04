@@ -14,8 +14,14 @@
 #include "host_side_soa.h"
 
 
-__global__ void partition_kernel_p2g();
-__global__ void v2_kernel_g2p(bool recordPQ);
+
+__global__ void partition_kernel_p2g(const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
+                              const unsigned count_pts, const unsigned pitch_pts,
+                                     const double *buffer_pts, double *buffer_grid);
+
+
+
+    __global__ void v2_kernel_g2p(bool recordPQ);
 __global__ void v2_kernel_update_nodes(double indenter_x, double indenter_y);
 
 __device__ Eigen::Matrix2d polar_decomp_R(const Eigen::Matrix2d &val);
@@ -50,6 +56,10 @@ struct GPU_Partition
     void reset_indenter_force_accumulator();
     void p2g();
 
+
+    // helper functions
+    double *getHaloAddress(int whichHalo, int whichGridArray);
+    double *getHaloReceiveAddress(int whichHalo, int whichGridArray);
 
     // host-side data
     int PartitionID;

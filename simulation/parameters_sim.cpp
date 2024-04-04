@@ -93,7 +93,7 @@ std::string icy::SimParams::ParseFile(std::string fileName)
     if(doc.HasMember("tpb_P2G")) tpb_P2G = doc["tpb_P2G"].GetUint();
     if(doc.HasMember("tpb_Upd")) tpb_Upd = doc["tpb_Upd"].GetUint();
     if(doc.HasMember("tpb_G2P")) tpb_G2P = doc["tpb_G2P"].GetUint();
-    if(doc.HasMember("GridHaloSize")) GridHaloSize = doc["GridHaloSize"].GetUint();
+    if(doc.HasMember("GridHaloSize")) GridHaloSize = doc["GridHaloSize"].GetInt();
     if(doc.HasMember("nPartitions")) nPartitions = doc["nPartitions"].GetUint();
 
     ComputeCamClayParams2();
@@ -128,6 +128,7 @@ void icy::SimParams::ComputeHelperVariables()
     cellsize_inv = 1./cellsize;
     Dp_inv = 4./(cellsize*cellsize);
     IndRSq = IndDiameter*IndDiameter/4.;
+    dt_vol_Dpinv = InitialTimeStep*ParticleVolume*Dp_inv;
 }
 
 void icy::SimParams::ComputeCamClayParams2()

@@ -70,11 +70,16 @@ public:
     double GrainVariability;
 
     // multi-GPU params
-    unsigned GridHaloSize;  // number of grid slices (perpendicular to the x-axis) for "halo" transfers
+    int GridHaloSize;  // number of grid slices (perpendicular to the x-axis) for "halo" transfers
     double ExtraSpaceForIncomingPoints;     // percentage of points per partition
     double PointsTransferBufferFraction;    // space for points that can "fly over" per simulation step
 
     unsigned nPartitions; // number of partitions (ideally, one partition per device)
+
+
+    // computed parameters/properties
+    double dt_vol_Dpinv;
+
 
     void Reset();
     std::string ParseFile(std::string fileName);

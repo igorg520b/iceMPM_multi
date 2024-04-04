@@ -127,23 +127,39 @@ void GPU_Implementation5::synchronize()
 
 void GPU_Implementation5::p2g()
 {
-
+    spdlog::info("P2G");
+    const size_t haloSize = model->prms.GridHaloSize*sizeof(double)*model->prms.GridY;
+    for(int i=0;i<partitions.size();i++)
+    {
+        GPU_Partition &p = partitions[i];
+        p.p2g();
+        if(i!=(partitions.size()-1))
+        {
+            GPU_Partition &pnxt = partitions[i+1];
+            for(int j=0;j<icy::SimParams::nGridArrays;j++)
+            {
+                double *halo_src1 = p.getHaloAddress(1, j);
+                double *halo_dst1 = pnxt.getHaloReceiveAddress(0, j);
+                cudaMemcpyPeerAsync(halo_dst1, pnxt.Device, halo_src1, p.Device, haloSize, p.streamCompute);
+            }
+        }
+        if(i!=0)
+        {
+            GPU_Partition &pprev = partitions[i-1];
+            for(int j=0;j<icy::SimParams::nGridArrays;j++)
+            {
+                double *halo_src1 = p.getHaloAddress(0, j);
+                double *halo_dst1 = pprev.getHaloReceiveAddress(1, j);
+                cudaMemcpyPeerAsync(halo_dst1, pprev.Device, halo_src1, p.Device, haloSize, p.streamCompute);
+            }
+        }
+    }
+    spdlog::info("P2G done");
 }
 
 /*
 
 
-__device__ Matrix2d KirchhoffStress_Wolper(const Matrix2d &F)
-{
-    const double &kappa = gprms.kappa;
-    const double &mu = gprms.mu;
-
-    // Kirchhoff stress as per Wolper (2019)
-    double Je = F.determinant();
-    Matrix2d b = F*F.transpose();
-    Matrix2d PFt = mu*(1/Je)*dev(b) + kappa*(Je*Je-1.)*Matrix2d::Identity();
-    return PFt;
-}
 
 __device__ void ComputePQ(icy::Point &p, const double &kappa, const double &mu)
 {
@@ -488,17 +504,6 @@ __global__ void v2_kernel_g2p(bool recordPQ)
 //===========================================================================
 
 
-
-// deviatoric part of a diagonal matrix
-__device__ Vector2d dev_d(Vector2d Adiag)
-{
-    return Adiag - Adiag.sum()/2*Vector2d::Constant(1.);
-}
-
-__device__ Eigen::Matrix2d dev(Eigen::Matrix2d A)
-{
-    return A - A.trace()/2*Eigen::Matrix2d::Identity();
-}
 
 
 //===========================================================================
