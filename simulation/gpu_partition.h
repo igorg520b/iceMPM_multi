@@ -20,6 +20,9 @@ __global__ void partition_kernel_p2g(const unsigned gridX, const unsigned gridX_
                                      const double *buffer_pts, double *buffer_grid);
 
 
+__global__ void partition_kernel_receive_halos(const unsigned haloElementCount, const unsigned gridX,
+                                               const unsigned pitch_grid, double *buffer_grid);
+
 
     __global__ void v2_kernel_g2p(bool recordPQ);
 __global__ void v2_kernel_update_nodes(double indenter_x, double indenter_y);
@@ -55,7 +58,7 @@ struct GPU_Partition
     void reset_grid();
     void reset_indenter_force_accumulator();
     void p2g();
-
+    void receive_halos();   // neightbour halos were copied, but we need to incorporate them into the grid
 
     // helper functions
     double *getHaloAddress(int whichHalo, int whichGridArray);

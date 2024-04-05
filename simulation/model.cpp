@@ -21,6 +21,7 @@ bool icy::Model::Step()
 
     gpu.reset_grid();
     gpu.p2g();
+    gpu.receive_halos();
 
     /*
 

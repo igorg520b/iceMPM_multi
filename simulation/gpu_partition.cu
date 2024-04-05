@@ -10,6 +10,37 @@ __constant__ icy::SimParams gprms;
 
 icy::SimParams *GPU_Partition::prms;
 
+
+void GPU_Partition::receive_halos()
+{
+    cudaSetDevice(Device);
+    const unsigned haloElementCount = prms->GridHaloSize*prms->GridY;
+    const unsigned tpb = 512;   // threads per block
+    const unsigned blocksPerGrid = (haloElementCount + tpb - 1) / tpb;
+    partition_kernel_receive_halos<<<blocksPerGrid, tpb, 0, streamCompute>>>(haloElementCount, GridX_partition, nGridPitch, grid_array);
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("receive_halos kernel execution");
+}
+
+
+__global__ void partition_kernel_receive_halos(const unsigned haloElementCount,
+                                               const unsigned gridX, const unsigned pitch_grid, double *buffer_grid)
+{
+    const unsigned &halo = gprms.GridHaloSize;
+    const unsigned &gridY = gprms.GridY;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx >= haloElementCount) return;
+    for(int i=0; i<icy::SimParams::nGridArrays; i++)
+    {
+        // left halo
+        buffer_grid[idx + i*pitch_grid + 3*halo*gridY] += buffer_grid[idx + i*pitch_grid + 0*halo*gridY];
+        // right halo
+        buffer_grid[idx + i*pitch_grid + (2*halo+gridX)*gridY] += buffer_grid[idx + i*pitch_grid + 1*halo*gridY];
+    }
+}
+
+
+
+
 double* GPU_Partition::getHaloAddress(int whichHalo, int whichGridArray)
 {
     if(whichHalo == 0)

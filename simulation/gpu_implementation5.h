@@ -5,6 +5,7 @@
 #include "gpu_partition.h"
 #include "parameters_sim.h"
 #include "point.h"
+#include "host_side_soa.h"
 
 #include <Eigen/Core>
 #include <Eigen/LU>
@@ -13,9 +14,6 @@
 #include <cuda_runtime.h>
 
 #include <functional>
-
-
-#include "host_side_soa.h"
 
 
 namespace icy { class Model; }
@@ -43,6 +41,7 @@ public:
     void reset_indenter_force_accumulator();
 
     void p2g();
+    void receive_halos();
 
     void cuda_g2p(bool recordPQ);
     void cuda_update_nodes(double indenter_x, double indenter_y);
