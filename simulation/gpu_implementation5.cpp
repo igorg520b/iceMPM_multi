@@ -187,6 +187,18 @@ void GPU_Implementation5::receive_halos()
 }
 
 
+void GPU_Implementation5::update_nodes()
+{
+    spdlog::info("update_nodes()");
+    for(int i=0;i<partitions.size();i++)
+    {
+        GPU_Partition &p = partitions[i];
+        p.update_nodes();
+    }
+}
+
+
+
 
 /*
 

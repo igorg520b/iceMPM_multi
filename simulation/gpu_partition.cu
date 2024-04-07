@@ -11,6 +11,97 @@ __constant__ icy::SimParams gprms;
 icy::SimParams *GPU_Partition::prms;
 
 
+void GPU_Partition::update_nodes()
+{
+    cudaSetDevice(Device);
+    const int nGridNodes = prms->GridY * GridX_partition;
+    int tpb = prms->tpb_Upd;
+    int nBlocks = (nGridNodes + tpb - 1) / tpb;
+    Eigen::Vector2d ind_center(prms->indenter_x, prms->indenter_y);
+
+    partition_kernel_update_nodes<<<nBlocks, tpb, 0, streamCompute>>>(ind_center, nGridNodes, GridX_offset,
+        nGridPitch, grid_array, indenter_force_accumulator);
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("cuda_update_nodes");
+}
+
+
+
+__global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
+    const unsigned nNodes, const unsigned gridX_offset, const unsigned pitch_grid,
+                                              double *_buffer_grid, double *indenter_force_accumulator)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx >= nNodes) return;
+
+    double *buffer_grid = _buffer_grid + 3*gprms.GridY*gprms.GridHaloSize;    // actual grid buffer comes after 3x halo regions
+    double mass = buffer_grid[idx];
+    if(mass == 0) return;
+
+    const double &gravity = gprms.Gravity;
+    const double &indRsq = gprms.IndRSq;
+    const double &dt = gprms.InitialTimeStep;
+    const double &ind_velocity = gprms.IndVelocity;
+    const double &cellsize = gprms.cellsize;
+    const double &vmax = gprms.vmax;
+    const double &vmax_squared = gprms.vmax_squared;
+    const unsigned &gridY = gprms.GridY;
+    const unsigned &gridXTotal = gprms.GridXTotal;
+
+    const Vector2d vco(ind_velocity,0);  // velocity of the collision object (indenter)
+
+    Vector2d velocity(buffer_grid[1*pitch_grid + idx], buffer_grid[2*pitch_grid + idx]);
+    velocity /= mass;
+    velocity[1] -= gprms.dt_Gravity;
+    if(velocity.squaredNorm() > vmax_squared) velocity = velocity.normalized()*vmax;
+
+    Vector2i gi(idx/gridY + gridX_offset, idx%gridY);   // integer x-y index of the grid node
+    Vector2d gnpos = gi.cast<double>()*cellsize;    // position of the grid node in the whole grid
+
+    // indenter
+    Vector2d n = gnpos - indCenter;
+    if(n.squaredNorm() < indRsq)
+    {
+        // grid node is inside the indenter
+        Vector2d vrel = velocity - vco;
+        n.normalize();
+        double vn = vrel.dot(n);   // normal component of the velocity
+        if(vn < 0)
+        {
+            Vector2d vt = vrel - n*vn;   // tangential portion of relative velocity
+            Vector2d prev_velocity = velocity;
+            velocity = vco + vt;
+
+            // force on the indenter
+            Vector2d force = (prev_velocity-velocity)*mass/dt;
+            float angle = atan2f((float)n[0],(float)n[1]);
+            angle += icy::SimParams::pi;
+            angle *= gprms.n_indenter_subdivisions/ (2*icy::SimParams::pi);
+            int index = min(max((int)angle, 0), gprms.n_indenter_subdivisions-1);
+            atomicAdd(&indenter_force_accumulator[0+2*index], force[0]);
+            atomicAdd(&indenter_force_accumulator[1+2*index], force[1]);
+        }
+    }
+
+    // attached bottom layer
+    if(gi.y() <= 2) velocity.setZero();
+    else if(gi.y() >= gridY-3 && velocity[1]>0) velocity[1] = 0;
+    if(gi.x() <= 2 && velocity[0]<0) velocity[0] = 0;
+    else if(gi.x() >= gridXTotal-3 && velocity[0]>0) velocity[0] = 0;
+
+    // side boundary conditions
+    //    int blocksGridX = gprms.BlockLength*gprms.cellsize_inv+5-2;
+    //    int blocksGridY = gprms.BlockHeight/2*gprms.cellsize_inv+2;
+    //    if(idx_x >= blocksGridX && idx_x <= blocksGridX + 2 && idx_y < blocksGridY) velocity.setZero();
+    //    if(idx_x <= 7 && idx_x > 4 && idx_y < blocksGridY) velocity.setZero();
+
+    // write the updated grid velocity back to memory
+    buffer_grid[1*pitch_grid + idx] = velocity[0];
+    buffer_grid[2*pitch_grid + idx] = velocity[1];
+}
+
+
+
+
 void GPU_Partition::receive_halos()
 {
     cudaSetDevice(Device);

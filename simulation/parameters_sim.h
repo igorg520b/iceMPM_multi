@@ -78,7 +78,7 @@ public:
 
 
     // computed parameters/properties
-    double dt_vol_Dpinv;
+    double dt_vol_Dpinv, dt_Gravity, vmax, vmax_squared;
 
 
     void Reset();

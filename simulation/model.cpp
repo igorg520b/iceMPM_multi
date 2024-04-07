@@ -19,9 +19,14 @@ bool icy::Model::Step()
 
     gpu.reset_indenter_force_accumulator();
 
+
+    simulation_time += prms.InitialTimeStep;
+    prms.indenter_x = prms.indenter_x_initial + simulation_time*prms.IndVelocity;
+
     gpu.reset_grid();
     gpu.p2g();
     gpu.receive_halos();
+    gpu.update_nodes();
 
     /*
 
@@ -29,11 +34,8 @@ bool icy::Model::Step()
     do
     {
         count_unupdated_steps++;
-        simulation_time += prms.InitialTimeStep;
-        prms.indenter_x = prms.indenter_x_initial + simulation_time*prms.IndVelocity;
         gpu.cuda_reset_grid();
         gpu.cuda_p2g();
-        gpu.cuda_update_nodes(prms.indenter_x, prms.indenter_y);
         gpu.cuda_g2p((prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep == 0);
     } while((prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep != 0);
     if(prms.SimulationStep % (prms.UpdateEveryNthStep*2) == 0) cudaEventRecord(gpu.eventCycleStop);

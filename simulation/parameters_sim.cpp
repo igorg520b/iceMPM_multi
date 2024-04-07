@@ -129,6 +129,10 @@ void icy::SimParams::ComputeHelperVariables()
     Dp_inv = 4./(cellsize*cellsize);
     IndRSq = IndDiameter*IndDiameter/4.;
     dt_vol_Dpinv = InitialTimeStep*ParticleVolume*Dp_inv;
+    dt_Gravity = InitialTimeStep*Gravity;
+    vmax = 0.5*cellsize/InitialTimeStep;
+    vmax_squared = vmax*vmax;
+
 }
 
 void icy::SimParams::ComputeCamClayParams2()

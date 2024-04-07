@@ -42,9 +42,9 @@ public:
 
     void p2g();
     void receive_halos();
+    void update_nodes();
 
     void cuda_g2p(bool recordPQ);
-    void cuda_update_nodes(double indenter_x, double indenter_y);
 
     void cuda_transfer_from_device();
 
