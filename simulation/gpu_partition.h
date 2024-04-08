@@ -30,11 +30,18 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
 
 
 
-__global__ void v2_kernel_g2p(bool recordPQ);
+__global__ void partition_kernel_g2p(const bool recordPQ, const bool left_device_present, const bool right_device_present,
+                                     const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
+                                     const unsigned count_pts, const unsigned pitch_pts,
+                                     double *buffer_pts, const double *buffer_grid,
+                                     double *_point_transfer_buffer[4], unsigned *vector_data_disabled_points);
+
+__device__ void SerialziePoint(unsigned idx, double *_buffer, const Point &p);
+
 
 __device__ Eigen::Matrix2d polar_decomp_R(const Eigen::Matrix2d &val);
 __device__ void svd(const double a[4], double u[4], double sigma[2], double v[4]);
-__device__ void svd2x2_modified(const Eigen::Matrix2d &mA, Eigen::Matrix2d &mU, Eigen::Vector2d &mS, Eigen::Matrix2d &mV);
+__device__ void svd2x2(const Eigen::Matrix2d &mA, Eigen::Matrix2d &mU, Eigen::Vector2d &mS, Eigen::Matrix2d &mV);
 
 __device__ void Wolper_Drucker_Prager(icy::Point &p);
 __device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p);
@@ -65,6 +72,7 @@ struct GPU_Partition
     void p2g();
     void receive_halos();   // neightbour halos were copied, but we need to incorporate them into the grid
     void update_nodes();
+    void g2p();
 
 
     // helper functions
@@ -100,7 +108,7 @@ struct GPU_Partition
     double *pts_array, *grid_array, *indenter_force_accumulator;
 
     // Four GPU-side vectors to keep track of points that escape and arrive
-    unsigned *_vector_data_disabled_points;  // list of indices <nPts_partition of "disabled" points
+    unsigned *vector_data_disabled_points;  // list of indices <nPts_partition of "disabled" points
     // points that fly to/from the adjacent partitions (left-out, right-out, left-in, right-in)
     double *point_transfer_buffer[4];
 

@@ -10,10 +10,10 @@ void icy::Point::Reset()
     Fe.setIdentity();
     velocity.setZero();
     Bp.setZero();
-    crushed = 0;
+    crushed = false;
     Jp_inv = 1;
 }
-
+/*
 void icy::Point::TransferToBuffer(double *buffer, const int pitch, const int point_index) const
 {
     char* ptr_intact = (char*)(&buffer[pitch*icy::SimParams::idx_utility_data]);
@@ -68,3 +68,4 @@ short icy::Point::getGrain(const double *buffer, const int pitch, const int poin
     short grain = ptr_grain[point_index];
     return grain;
 }
+*/
