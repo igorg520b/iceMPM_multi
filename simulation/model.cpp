@@ -29,6 +29,7 @@ bool icy::Model::Step()
     gpu.receive_halos();
     gpu.update_nodes();
     gpu.g2p((prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep == 0);
+    gpu.receive_points();
 
     /*
 

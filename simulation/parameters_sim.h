@@ -75,7 +75,8 @@ public:
     double PointsTransferBufferFraction;    // space for points that can "fly over" per simulation step
 
     unsigned nPartitions; // number of partitions (ideally, one partition per device)
-
+    unsigned VectorCapacity_transfer;   // vector capacity for points that fly to another partition
+    unsigned VectorCapacity_disabled;   // for "disabled" points (points from the middle of the list that flew away
 
     // computed parameters/properties
     double dt_vol_Dpinv, dt_Gravity, vmax, vmax_squared;

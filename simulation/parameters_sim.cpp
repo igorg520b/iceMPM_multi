@@ -133,6 +133,8 @@ void icy::SimParams::ComputeHelperVariables()
     vmax = 0.5*cellsize/InitialTimeStep;
     vmax_squared = vmax*vmax;
 
+    VectorCapacity_transfer = nPtsTotal/nPartitions * PointsTransferBufferFraction;
+    VectorCapacity_disabled = nPtsTotal/nPartitions * ExtraSpaceForIncomingPoints;
 }
 
 void icy::SimParams::ComputeCamClayParams2()

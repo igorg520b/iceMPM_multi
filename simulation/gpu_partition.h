@@ -31,18 +31,19 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
 
 
 __global__ void partition_kernel_g2p(const bool recordPQ,
-                                     const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
+                                     const int gridX, const int gridX_offset, const unsigned pitch_grid,
                                      const unsigned count_pts, const unsigned pitch_pts,
                                      double *buffer_pts, const double *buffer_grid,
                                      double *_point_transfer_buffer[4], unsigned *vector_data_disabled_points,
-                                     size_t VectorCapacity_transfer, size_t VectorCapacity_disabled);
+                                     unsigned *utility_data,
+                                     const unsigned VectorCapacity_transfer, const unsigned VectorCapacity_disabled);
 
 
 // device functions used by kernels
 __device__ void PreparePointForTransfer(const unsigned pt_idx, const int whichSide, double *_point_transfer_buffer[4],
-                                        unsigned *vector_data_disabled_points,
+                                        unsigned *vector_data_disabled_points, unsigned *utility_data,
                                         icy::Point &p,
-                                        const size_t VectorCapacity_transfer, const size_t VectorCapacity_disabled);
+                                        const unsigned VectorCapacity_transfer, const unsigned VectorCapacity_disabled);
 
 __device__ Eigen::Matrix2d polar_decomp_R(const Eigen::Matrix2d &val);
 __device__ void svd(const double a[4], double u[4], double sigma[2], double v[4]);
@@ -61,6 +62,7 @@ __device__ Eigen::Matrix2d dev(Eigen::Matrix2d A);
 
 struct GPU_Partition
 {
+    constexpr static size_t utility_data_size = 3;
     GPU_Partition();
     ~GPU_Partition();
 
@@ -78,10 +80,14 @@ struct GPU_Partition
     void receive_halos();   // neightbour halos were copied, but we need to incorporate them into the grid
     void update_nodes();
     void g2p(const bool recordPQ);
+    void receive_nodes(unsigned nFromLeft, unsigned nFromRight);
 
     // helper functions
     double *getHaloAddress(int whichHalo, int whichGridArray);
     double *getHaloReceiveAddress(int whichHalo, int whichGridArray);
+    unsigned getLeftBufferCount() {return host_side_utility_data[0];}
+    unsigned getRightBufferCount() {return host_side_utility_data[1];}
+    unsigned getDisabledPtsCount() {return host_side_utility_data[2];}
 
     // host-side data
     int PartitionID;
@@ -89,26 +95,27 @@ struct GPU_Partition
     static icy::SimParams *prms;
 
     size_t nPtsPitch, nGridPitch; // in number of elements(!), for coalesced access on the device
-    unsigned nPts_partition;    // actual number of points (including disabled)
-    unsigned GridX_partition;   // size of the portion of the grid for which this partition is "responsible"
-    unsigned GridX_offset;      // index where the grid starts in this partition
-    size_t VectorCapacity_transfer;   // vector capacity for points that fly to another partition
-    size_t VectorCapacity_disabled;   // for "disabled" points (points from the middle of the list that flew away
+    int nPts_partition;    // actual number of points (including disabled)
+    int GridX_partition;   // size of the portion of the grid for which this partition is "responsible"
+    int GridX_offset;      // index where the grid starts in this partition
+
     double *host_side_indenter_force_accumulator;
 
     // stream and events
     cudaStream_t streamCompute;
     cudaEvent_t eventCycleStart, eventCycleStop;
-    cudaEvent_t event_grid_halo_sent[2]; // 0-left; 1-right
-    cudaEvent_t event_pts_sent[2]; // 0-left; 1-right
+    cudaEvent_t event_grid_halo_sent;
+    cudaEvent_t event_pts_sent;
+    cudaEvent_t event_utility_data_transferred;
 
     bool initialized = false;
     uint8_t error_code = 0;
 
     // for tesitng and debugging
-    unsigned transferred_point_count[2]; // left and right
+    unsigned *host_side_utility_data; // sizes of outbound pt tranfer buffers (2), disabled pts (1)
 
     // device-side data
+    unsigned *device_side_utility_data;
     double *pts_array, *grid_array, *indenter_force_accumulator;
 
     // Four GPU-side vectors to keep track of points that escape and arrive

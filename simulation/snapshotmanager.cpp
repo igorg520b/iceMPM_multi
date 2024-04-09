@@ -37,6 +37,7 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     hsize_t nPoints;
     dataset_grains.getSpace().getSimpleExtentDims(&nPoints, NULL);
     model->prms.nPtsTotal = nPoints;
+    model->prms.ComputeHelperVariables();
 
     // allocate space host-side
     model->gpu.hssoa.Allocate(nPoints*(1+model->prms.ExtraSpaceForIncomingPoints));

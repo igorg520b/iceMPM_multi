@@ -44,6 +44,7 @@ public:
     void receive_halos();
     void update_nodes();
     void g2p(bool recordPQ);
+    void receive_points();
 
     void cuda_transfer_from_device();
 

@@ -1,5 +1,6 @@
 #include "gpu_partition.h"
 #include "helper_math.cuh"
+#include <stdio.h>
 
 using namespace Eigen;
 
@@ -14,30 +15,77 @@ __constant__ icy::SimParams gprms;
 icy::SimParams *GPU_Partition::prms;
 
 
-
-void GPU_Partition::g2p(const bool recordPQ)
+void GPU_Partition::receive_nodes(unsigned nFromLeft, unsigned nFromRight)
 {
-    cudaSetDevice(Device);
+    unsigned total = nFromLeft+nFromRight;
+    if(!total) return;
+
+/*
+    cudaError_t err;
+    err = cudaSetDevice(Device);
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p cudaSetDevice");
+
+    err = cudaMemsetAsync(device_side_utility_data, 0, 2*sizeof(unsigned), streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("g2p cudaMemset");
+
     const unsigned &n = nPts_partition;
     const unsigned &tpb = prms->tpb_G2P;
     const unsigned nBlocks = (n + tpb - 1) / tpb;
+*/
+}
+
+
+__global__ void partition_kernel_receive_points(const unsigned count_pts, const unsigned pitch_pts,
+                                                double *buffer_pts, const double *buffer_grid,
+                                                double *_point_transfer_buffer[4], unsigned *vector_data_disabled_points,
+                                                size_t VectorCapacity_transfer, size_t VectorCapacity_disabled)
+{
+
+}
+
+
+
+void GPU_Partition::g2p(const bool recordPQ)
+{
+    cudaError_t err;
+    err = cudaSetDevice(Device);
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p cudaSetDevice");
+
+    err = cudaMemsetAsync(device_side_utility_data, 0, 2*sizeof(unsigned), streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("g2p cudaMemset");
+
+    const unsigned &n = nPts_partition;
+    const unsigned &tpb = prms->tpb_G2P;
+    const unsigned nBlocks = (n + tpb - 1) / tpb;
+
 
     partition_kernel_g2p<<<nBlocks, tpb, 0, streamCompute>>>(recordPQ,
             GridX_partition, GridX_offset, nGridPitch,
             nPts_partition, nPtsPitch,
             pts_array, grid_array,
-            point_transfer_buffer, vector_data_disabled_points,
-            VectorCapacity_transfer, VectorCapacity_disabled);
+            point_transfer_buffer, vector_data_disabled_points, device_side_utility_data,
+            prms->VectorCapacity_transfer, prms->VectorCapacity_disabled);
 
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p kernel");
+
+    err = cudaMemcpyAsync(host_side_utility_data, device_side_utility_data, sizeof(unsigned)*utility_data_size, cudaMemcpyDeviceToHost, streamCompute);
+    if(err != cudaSuccess)
+    {
+        const char* errorString = cudaGetErrorString(err);
+        spdlog::critical("error {}; host {}; device {}",errorString, (void*)host_side_utility_data, (void*)device_side_utility_data);
+        throw std::runtime_error("GPU_Partition::g2p cudaMemcpy");
+    }
+    err = cudaEventRecord(event_utility_data_transferred, streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition::g2p cudaEventRecord");
 }
 
 __global__ void partition_kernel_g2p(const bool recordPQ,
-                                    const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
+                                    const int gridX, const int gridX_offset, const unsigned pitch_grid,
                                     const unsigned count_pts, const unsigned pitch_pts,
                                     double *buffer_pts, const double *buffer_grid,
                                     double *_point_transfer_buffer[4], unsigned *vector_data_disabled_points,
-                                    size_t VectorCapacity_transfer, size_t VectorCapacity_disabled)
+                                    unsigned *utility_data,
+                                    const unsigned VectorCapacity_transfer, const unsigned VectorCapacity_disabled)
 {
     int pt_idx = blockIdx.x * blockDim.x + threadIdx.x;
     if(pt_idx >= count_pts) return;
@@ -115,16 +163,15 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
     if(base_coord_i.x() < gridX_offset-halo)
     {
         // point transfers to the left
-        PreparePointForTransfer(pt_idx, 0, _point_transfer_buffer, vector_data_disabled_points, p,
+        PreparePointForTransfer(pt_idx, 0, _point_transfer_buffer, vector_data_disabled_points, utility_data, p,
                                 VectorCapacity_transfer, VectorCapacity_disabled);
     }
     else if(base_coord_i.x() > (gridX_offset+gridX-3+halo))
     {
         // point transfers to the right
-        PreparePointForTransfer(pt_idx, 1, _point_transfer_buffer, vector_data_disabled_points, p,
+        PreparePointForTransfer(pt_idx, 1, _point_transfer_buffer, vector_data_disabled_points, utility_data, p,
                                 VectorCapacity_transfer, VectorCapacity_disabled);
     }
-
     // distribute the values of p back into GPU memory: pos, velocity, BP, Fe, Jp_inv, PQ
     for(int i=0; i<icy::SimParams::dim; i++)
     {
@@ -149,23 +196,24 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
 }
 
 __device__ void PreparePointForTransfer(const unsigned pt_idx, const int whichSide, double *_point_transfer_buffer[4],
-                                        unsigned *vector_data_disabled_points,
+                                        unsigned *vector_data_disabled_points, unsigned *utility_data,
                                         icy::Point &p,
-                                        const size_t VectorCapacity_transfer, const size_t VectorCapacity_disabled)
+                                        const unsigned VectorCapacity_transfer, const unsigned VectorCapacity_disabled)
 {
-    unsigned *transfer_point_count = reinterpret_cast<unsigned*>(_point_transfer_buffer[whichSide]);
-    unsigned fly_idx = atomicAdd(transfer_point_count, 1);  // reserve space in the transfer buffer
-    unsigned disabled_buffer_idx = atomicAdd(vector_data_disabled_points, 1); // keep track of disabled points
+    unsigned fly_idx=0, disabled_buffer_idx=0;
+
+    fly_idx = atomicAdd(&utility_data[whichSide], (unsigned)1);  // reserve space in the transfer buffer
+    disabled_buffer_idx = atomicAdd(&utility_data[2], (unsigned)1); // keep track of disabled points
 
     // check buffer boundary
     if(fly_idx >= VectorCapacity_transfer) { gpu_error_indicator = 2; return; }
     if(disabled_buffer_idx >= VectorCapacity_disabled) { gpu_error_indicator = 3; return; }
 
     // add the disabled index to the special index table
-    vector_data_disabled_points[1+disabled_buffer_idx] = pt_idx;    // current point storage space is added to the list
+    vector_data_disabled_points[disabled_buffer_idx] = pt_idx;    // current point storage space is added to the list
 
     // location where point data will be written
-    double *buffer = _point_transfer_buffer[whichSide]+1+fly_idx*icy::SimParams::nPtsArrays;
+    double *buffer = _point_transfer_buffer[whichSide]+fly_idx*icy::SimParams::nPtsArrays;
 
     // copy point data into the transfer buffer
     long long *ptr = reinterpret_cast<long long*>(buffer);
@@ -576,11 +624,14 @@ GPU_Partition::GPU_Partition()
 {
     nPts_partition = GridX_partition = GridX_offset = 0;
     host_side_indenter_force_accumulator = nullptr;
+    host_side_utility_data = nullptr;
+
     pts_array = nullptr;
     grid_array = nullptr;
     indenter_force_accumulator = nullptr;
     vector_data_disabled_points = nullptr;
     for(int i=0;i<4;i++) point_transfer_buffer[i] = nullptr;
+    device_side_utility_data = nullptr;
 }
 
 GPU_Partition::~GPU_Partition()
@@ -588,19 +639,21 @@ GPU_Partition::~GPU_Partition()
     cudaSetDevice(Device);
     cudaEventDestroy(eventCycleStart);
     cudaEventDestroy(eventCycleStop);
-    cudaEventDestroy(event_grid_halo_sent[0]);
-    cudaEventDestroy(event_grid_halo_sent[1]);
-    cudaEventDestroy(event_pts_sent[0]);
-    cudaEventDestroy(event_pts_sent[1]);
+    cudaEventDestroy(event_grid_halo_sent);
+    cudaEventDestroy(event_pts_sent);
+    cudaEventDestroy(event_utility_data_transferred);
 
     cudaStreamDestroy(streamCompute);
 
     cudaFreeHost(host_side_indenter_force_accumulator);
+    cudaFreeHost(host_side_utility_data);
+
     cudaFree(indenter_force_accumulator);
     cudaFree(pts_array);
     for(int i=0;i<4;i++) cudaFree(point_transfer_buffer[i]);
     cudaFree(vector_data_disabled_points);
     cudaFree(grid_array);
+    cudaFree(device_side_utility_data);
     spdlog::info("Destructor invoked; partition {} on device {}", PartitionID, Device);
 }
 
@@ -611,10 +664,9 @@ void GPU_Partition::initialize(int device, int partition)
     cudaSetDevice(Device);
     cudaEventCreate(&eventCycleStart);
     cudaEventCreate(&eventCycleStop);
-    cudaEventCreate(&event_grid_halo_sent[0]);
-    cudaEventCreate(&event_grid_halo_sent[1]);
-    cudaEventCreate(&event_pts_sent[0]);
-    cudaEventCreate(&event_pts_sent[1]);
+    cudaEventCreate(&event_grid_halo_sent);
+    cudaEventCreate(&event_pts_sent);
+    cudaEventCreate(&event_utility_data_transferred);
     cudaError_t err = cudaStreamCreate(&streamCompute);
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition initialization failure");
     initialized = true;
@@ -645,16 +697,14 @@ void GPU_Partition::allocate(unsigned n_points_capacity, unsigned grid_x_capacit
     nPtsPitch /= sizeof(double);
 
     // point transfer buffers
-    VectorCapacity_transfer = n_points_capacity * prms->PointsTransferBufferFraction;
     for(int i=0;i<4;i++)
     {
-        err = cudaMalloc(&point_transfer_buffer[i], (1+VectorCapacity_transfer*icy::SimParams::nPtsArrays)*sizeof(double));
+        err = cudaMalloc(&point_transfer_buffer[i], prms->VectorCapacity_transfer*icy::SimParams::nPtsArrays*sizeof(double));
         if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate");
     }
 
     // integer vector for disabled points
-    VectorCapacity_disabled = n_points_capacity * prms->ExtraSpaceForIncomingPoints;
-    err = cudaMalloc(&vector_data_disabled_points, (VectorCapacity_disabled+1)*sizeof(unsigned));
+    err = cudaMalloc(&vector_data_disabled_points, prms->VectorCapacity_disabled*sizeof(unsigned));
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate vector_data_disabled_points");
 
     // grid
@@ -663,8 +713,15 @@ void GPU_Partition::allocate(unsigned n_points_capacity, unsigned grid_x_capacit
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate grid array");
     nGridPitch /= sizeof(double); // assume that this divides without remainder
 
+    err = cudaMallocHost(&host_side_utility_data, utility_data_size*sizeof(unsigned));
+    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate host-side array");
+
+    err = cudaMalloc(&device_side_utility_data, utility_data_size*sizeof(unsigned));
+    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate space for utility data");
+
     spdlog::info("Partition {}-{}: allocated GridPitch {} ({}); Pts {}; Disabled {}; PtsTransfer {}; grid_size_local_requested {}",
-                 PartitionID, Device, nGridPitch, nGridPitch/prms->GridY, nPtsPitch, VectorCapacity_disabled, VectorCapacity_transfer, grid_size_local_requested);
+                 PartitionID, Device, nGridPitch, nGridPitch/prms->GridY, nPtsPitch,
+                 prms->VectorCapacity_disabled, prms->VectorCapacity_transfer, grid_size_local_requested);
 }
 
 
@@ -672,13 +729,8 @@ void GPU_Partition::clear_utility_vectors()
 {
     spdlog::info("P {} D {}, utility vectors clear",PartitionID,Device);
     cudaSetDevice(Device);
-    cudaError_t err = cudaMemsetAsync(vector_data_disabled_points, 0, sizeof(unsigned), streamCompute);
+    cudaError_t err = cudaMemsetAsync(device_side_utility_data, 0, 3*sizeof(unsigned), streamCompute);
     if(err != cudaSuccess) throw std::runtime_error("initialize_utility_vectors");
-    for(int i=0;i<4;i++)
-    {
-        cudaError_t err = cudaMemsetAsync(point_transfer_buffer[i], 0, sizeof(double), streamCompute);
-        if(err != cudaSuccess) throw std::runtime_error("initialize_utility_vectors");
-    }
 }
 
 
