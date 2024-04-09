@@ -199,6 +199,57 @@ void GPU_Implementation5::update_nodes()
 
 
 
+void GPU_Implementation5::g2p(bool recordPQ)
+{
+    spdlog::info("G2P");
+    cudaError_t err;
+    for(int i=0;i<partitions.size();i++)
+    {
+        GPU_Partition &p = partitions[i];
+        p.p2g();
+    }
+    spdlog::info("G2P done");
+
+    /*
+
+
+    const size_t haloSize = model->prms.GridHaloSize*sizeof(double)*model->prms.GridY;
+    for(int i=0;i<partitions.size();i++)
+    {
+        GPU_Partition &p = partitions[i];
+        p.p2g();
+
+        if(i!=(partitions.size()-1))
+        {
+            GPU_Partition &pnxt = partitions[i+1];
+            for(int j=0;j<icy::SimParams::nGridArrays;j++)
+            {
+                double *halo_src1 = p.getHaloAddress(1, j);
+                double *halo_dst1 = pnxt.getHaloReceiveAddress(0, j);
+                err = cudaMemcpyPeerAsync(halo_dst1, pnxt.Device, halo_src1, p.Device, haloSize, p.streamCompute);
+                if(err != cudaSuccess) throw std::runtime_error("p2g cudaMemcpyPeerAsync");
+            }
+        }
+        if(i!=0)
+        {
+            GPU_Partition &pprev = partitions[i-1];
+            for(int j=0;j<icy::SimParams::nGridArrays;j++)
+            {
+                double *halo_src1 = p.getHaloAddress(0, j);
+                double *halo_dst1 = pprev.getHaloReceiveAddress(1, j);
+                err = cudaMemcpyPeerAsync(halo_dst1, pprev.Device, halo_src1, p.Device, haloSize, p.streamCompute);
+                if(err != cudaSuccess) throw std::runtime_error("p2g cudaMemcpyPeerAsync");
+            }
+        }
+        err = cudaEventRecord(p.event_grid_halo_sent[0], p.streamCompute);
+        if(err != cudaSuccess) throw std::runtime_error("p2g");
+    }
+    spdlog::info("P2G done");
+*/
+}
+
+
+
 
 /*
 

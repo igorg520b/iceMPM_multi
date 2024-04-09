@@ -23,20 +23,21 @@ bool icy::Model::Step()
     simulation_time += prms.InitialTimeStep;
     prms.indenter_x = prms.indenter_x_initial + simulation_time*prms.IndVelocity;
 
+    count_unupdated_steps++;
     gpu.reset_grid();
     gpu.p2g();
     gpu.receive_halos();
     gpu.update_nodes();
+    gpu.g2p((prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep == 0);
 
     /*
 
     if(prms.SimulationStep % (prms.UpdateEveryNthStep*2) == 0) cudaEventRecord(gpu.eventCycleStart);
     do
     {
-        count_unupdated_steps++;
         gpu.cuda_reset_grid();
         gpu.cuda_p2g();
-        gpu.cuda_g2p((prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep == 0);
+        gpu.cuda_g2p();
     } while((prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep != 0);
     if(prms.SimulationStep % (prms.UpdateEveryNthStep*2) == 0) cudaEventRecord(gpu.eventCycleStop);
 

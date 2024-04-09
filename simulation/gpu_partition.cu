@@ -15,33 +15,38 @@ icy::SimParams *GPU_Partition::prms;
 
 
 
-void GPU_Partition::g2p()
+void GPU_Partition::g2p(const bool recordPQ)
 {
     cudaSetDevice(Device);
     const unsigned &n = nPts_partition;
     const unsigned &tpb = prms->tpb_G2P;
     const unsigned nBlocks = (n + tpb - 1) / tpb;
 
+    partition_kernel_g2p<<<nBlocks, tpb, 0, streamCompute>>>(recordPQ,
+            GridX_partition, GridX_offset, nGridPitch,
+            nPts_partition, nPtsPitch,
+            pts_array, grid_array,
+            point_transfer_buffer, vector_data_disabled_points,
+            VectorCapacity_transfer, VectorCapacity_disabled);
 
-
-//    partition_kernel_g2p<<<nBlocks, tpb, 0, streamCompute>>>(GridX_partition, GridX_offset, nGridPitch,
-//                                                                   nPts_partition, nPtsPitch, pts_array, grid_array);
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p kernel");
 }
 
-__global__ void partition_kernel_g2p(const bool recordPQ, const bool left_device_present, const bool right_device_present,
-                                     const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
-                                     const unsigned count_pts, const unsigned pitch_pts,
-                                     double *buffer_pts, const double *buffer_grid,
-                                     double *_point_transfer_buffer[4])
+__global__ void partition_kernel_g2p(const bool recordPQ,
+                                    const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
+                                    const unsigned count_pts, const unsigned pitch_pts,
+                                    double *buffer_pts, const double *buffer_grid,
+                                    double *_point_transfer_buffer[4], unsigned *vector_data_disabled_points,
+                                    size_t VectorCapacity_transfer, size_t VectorCapacity_disabled)
 {
     int pt_idx = blockIdx.x * blockDim.x + threadIdx.x;
     if(pt_idx >= count_pts) return;
 
     // skip if a point is disabled
+    icy::Point p;
     long long* ptr = reinterpret_cast<long long*>(&buffer_pts[pitch_pts*icy::SimParams::idx_utility_data]);
-    long long utility_data = ptr[pt_idx];
-    if(utility_data & status_disabled) return; // point is disabled
+    p.utility_data = ptr[pt_idx];
+    if(p.utility_data & status_disabled) return; // point is disabled
 
     const int &halo = gprms.GridHaloSize;
     const double &h_inv = gprms.cellsize_inv;
@@ -51,13 +56,6 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool left_device
     const double &mu = gprms.mu;
     const double &kappa = gprms.kappa;
 
-    // at these memory addresses we count the points that "fly" left and right
-    unsigned *transfer_point_count_left = reinterpret_cast<unsigned*>(_point_transfer_buffer[0]);
-    unsigned *transfer_point_count_right = reinterpret_cast<unsigned*>(_point_transfer_buffer[1]);
-    double *transfer_buffer_left = _point_transfer_buffer[0]+1;     // the first element is a 4-byte integer count
-    double *transfer_buffer_right = _point_transfer_buffer[1]+1;    // the first element is a 4-byte integer count
-
-    icy::Point p;
     p.velocity.setZero();
     p.Bp.setZero();
 
@@ -71,8 +69,8 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool left_device
         }
     }
     p.Jp_inv = buffer_pts[pt_idx + pitch_pts*icy::SimParams::idx_Jp_inv];
-    p.grain = (short)utility_data;
-    p.crushed = (utility_data >> 16) & 0x1;
+    p.grain = (short)p.utility_data;
+    p.crushed = (p.utility_data >> 16) & 0x1;
 
     // coords of base grid node for point
     Eigen::Vector2i base_coord_i = (p.pos*h_inv - Vector2d::Constant(0.5)).cast<int>();
@@ -108,28 +106,24 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool left_device
 
     ComputePQ(p, kappa, mu);    // pre-computes USV, p, q, etc.
 
-    if(p.crushed == 0) CheckIfPointIsInsideFailureSurface(p, utility_data);
+//    if(p.crushed == 0) CheckIfPointIsInsideFailureSurface(p);
+    if(__builtin_expect(p.crushed, 0) == 0) CheckIfPointIsInsideFailureSurface(p);
     if(p.crushed == 1) Wolper_Drucker_Prager(p);
 
-
-
-
-
-
     // if a point is about to move to another GPU partition/device, disable it and store in a special array
-
+    base_coord_i = (p.pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // update the base node index
     if(base_coord_i.x() < gridX_offset-halo)
     {
         // point transfers to the left
+        PreparePointForTransfer(pt_idx, 0, _point_transfer_buffer, vector_data_disabled_points, p,
+                                VectorCapacity_transfer, VectorCapacity_disabled);
     }
-    else if(base_coord_i.x() > gridX_offset + gridX - 3 + halo)
+    else if(base_coord_i.x() > (gridX_offset+gridX-3+halo))
     {
         // point transfers to the right
+        PreparePointForTransfer(pt_idx, 1, _point_transfer_buffer, vector_data_disabled_points, p,
+                                VectorCapacity_transfer, VectorCapacity_disabled);
     }
-
-
-
-
 
     // distribute the values of p back into GPU memory: pos, velocity, BP, Fe, Jp_inv, PQ
     for(int i=0; i<icy::SimParams::dim; i++)
@@ -144,7 +138,7 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool left_device
     }
 
     buffer_pts[pt_idx + pitch_pts*icy::SimParams::idx_Jp_inv] = p.Jp_inv;
-    ptr[pt_idx] = utility_data; // includes crushed/disable status and grain number
+    ptr[pt_idx] = p.utility_data; // includes crushed/disable status and grain number
 
     // at the end of each cycle, PQ are recorded for visualization
     if(recordPQ)
@@ -152,6 +146,45 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool left_device
         buffer_pts[pt_idx + pitch_pts*icy::SimParams::idx_P] = p.p_tr;
         buffer_pts[pt_idx + pitch_pts*icy::SimParams::idx_Q] = p.q_tr;
     }
+}
+
+__device__ void PreparePointForTransfer(const unsigned pt_idx, const int whichSide, double *_point_transfer_buffer[4],
+                                        unsigned *vector_data_disabled_points,
+                                        icy::Point &p,
+                                        const size_t VectorCapacity_transfer, const size_t VectorCapacity_disabled)
+{
+    unsigned *transfer_point_count = reinterpret_cast<unsigned*>(_point_transfer_buffer[whichSide]);
+    unsigned fly_idx = atomicAdd(transfer_point_count, 1);  // reserve space in the transfer buffer
+    unsigned disabled_buffer_idx = atomicAdd(vector_data_disabled_points, 1); // keep track of disabled points
+
+    // check buffer boundary
+    if(fly_idx >= VectorCapacity_transfer) { gpu_error_indicator = 2; return; }
+    if(disabled_buffer_idx >= VectorCapacity_disabled) { gpu_error_indicator = 3; return; }
+
+    // add the disabled index to the special index table
+    vector_data_disabled_points[1+disabled_buffer_idx] = pt_idx;    // current point storage space is added to the list
+
+    // location where point data will be written
+    double *buffer = _point_transfer_buffer[whichSide]+1+fly_idx*icy::SimParams::nPtsArrays;
+
+    // copy point data into the transfer buffer
+    long long *ptr = reinterpret_cast<long long*>(buffer);
+    *ptr = p.utility_data;
+    for(int i=0; i<icy::SimParams::dim; i++)
+    {
+        buffer[icy::SimParams::posx+i] = p.pos[i];
+        buffer[icy::SimParams::velx+i] = p.velocity[i];
+        for(int j=0; j<icy::SimParams::dim; j++)
+        {
+            buffer[icy::SimParams::Fe00 + i*icy::SimParams::dim + j] = p.Fe(i,j);
+            buffer[icy::SimParams::Bp00 + i*icy::SimParams::dim + j] = p.Bp(i,j);
+        }
+    }
+    buffer[icy::SimParams::idx_Jp_inv] = p.Jp_inv;
+    buffer[icy::SimParams::idx_P] = p.p_tr;
+    buffer[icy::SimParams::idx_Q] = p.q_tr;
+
+    p.utility_data |= status_disabled;    // disable the point on current partition
 }
 
 
@@ -252,7 +285,7 @@ __device__ void GetParametersForGrain(short grain, double &pmin, double &pmax, d
 }
 
 
-__device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p, long long &utility_data)
+__device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p)
 {
 
     //    const double &beta = gprms.NACC_beta;
@@ -280,7 +313,7 @@ __device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p, long long &uti
         if(y > 0)
         {
             p.crushed = 1;
-            utility_data |= status_crushed;
+            p.utility_data |= status_crushed;
         }
     }
 }
@@ -546,7 +579,7 @@ GPU_Partition::GPU_Partition()
     pts_array = nullptr;
     grid_array = nullptr;
     indenter_force_accumulator = nullptr;
-    _vector_data_disabled_points = nullptr;
+    vector_data_disabled_points = nullptr;
     for(int i=0;i<4;i++) point_transfer_buffer[i] = nullptr;
 }
 
@@ -566,7 +599,7 @@ GPU_Partition::~GPU_Partition()
     cudaFree(indenter_force_accumulator);
     cudaFree(pts_array);
     for(int i=0;i<4;i++) cudaFree(point_transfer_buffer[i]);
-    cudaFree(_vector_data_disabled_points);
+    cudaFree(vector_data_disabled_points);
     cudaFree(grid_array);
     spdlog::info("Destructor invoked; partition {} on device {}", PartitionID, Device);
 }
@@ -621,8 +654,8 @@ void GPU_Partition::allocate(unsigned n_points_capacity, unsigned grid_x_capacit
 
     // integer vector for disabled points
     VectorCapacity_disabled = n_points_capacity * prms->ExtraSpaceForIncomingPoints;
-    err = cudaMalloc(&_vector_data_disabled_points, (VectorCapacity_disabled+1)*sizeof(unsigned));
-    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate _vector_data_disabled_points");
+    err = cudaMalloc(&vector_data_disabled_points, (VectorCapacity_disabled+1)*sizeof(unsigned));
+    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate vector_data_disabled_points");
 
     // grid
     size_t grid_size_local_requested = prms->GridY*(grid_x_capacity + 4*prms->GridHaloSize) * sizeof(double);
@@ -639,7 +672,7 @@ void GPU_Partition::clear_utility_vectors()
 {
     spdlog::info("P {} D {}, utility vectors clear",PartitionID,Device);
     cudaSetDevice(Device);
-    cudaError_t err = cudaMemsetAsync(_vector_data_disabled_points, 0, sizeof(unsigned), streamCompute);
+    cudaError_t err = cudaMemsetAsync(vector_data_disabled_points, 0, sizeof(unsigned), streamCompute);
     if(err != cudaSuccess) throw std::runtime_error("initialize_utility_vectors");
     for(int i=0;i<4;i++)
     {

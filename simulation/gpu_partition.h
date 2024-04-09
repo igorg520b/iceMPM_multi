@@ -14,7 +14,7 @@
 #include "host_side_soa.h"
 
 
-
+// kernels
 __global__ void partition_kernel_p2g(const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
                               const unsigned count_pts, const unsigned pitch_pts,
                                      const double *buffer_pts, double *buffer_grid);
@@ -30,14 +30,19 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
 
 
 
-__global__ void partition_kernel_g2p(const bool recordPQ, const bool left_device_present, const bool right_device_present,
+__global__ void partition_kernel_g2p(const bool recordPQ,
                                      const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
                                      const unsigned count_pts, const unsigned pitch_pts,
                                      double *buffer_pts, const double *buffer_grid,
-                                     double *_point_transfer_buffer[4], unsigned *vector_data_disabled_points);
+                                     double *_point_transfer_buffer[4], unsigned *vector_data_disabled_points,
+                                     size_t VectorCapacity_transfer, size_t VectorCapacity_disabled);
 
-__device__ void SerialziePoint(unsigned idx, double *_buffer, const Point &p);
 
+// device functions used by kernels
+__device__ void PreparePointForTransfer(const unsigned pt_idx, const int whichSide, double *_point_transfer_buffer[4],
+                                        unsigned *vector_data_disabled_points,
+                                        icy::Point &p,
+                                        const size_t VectorCapacity_transfer, const size_t VectorCapacity_disabled);
 
 __device__ Eigen::Matrix2d polar_decomp_R(const Eigen::Matrix2d &val);
 __device__ void svd(const double a[4], double u[4], double sigma[2], double v[4]);
@@ -72,8 +77,7 @@ struct GPU_Partition
     void p2g();
     void receive_halos();   // neightbour halos were copied, but we need to incorporate them into the grid
     void update_nodes();
-    void g2p();
-
+    void g2p(const bool recordPQ);
 
     // helper functions
     double *getHaloAddress(int whichHalo, int whichGridArray);
