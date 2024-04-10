@@ -29,11 +29,11 @@ public:
     std::vector<GPU_Partition> partitions;
     HostSideSOA hssoa;
 
-    int error_code;
     std::function<void()> transfer_completion_callback;
 
     void device_allocate_arrays();
     void transfer_ponts_to_device();
+    void transfer_from_device();
 
     void synchronize(); // call before terminating the main thread
     void update_constants();
@@ -46,13 +46,12 @@ public:
     void g2p(bool recordPQ);
     void receive_points();
 
-    void transfer_from_device();
 
     // the size of this buffer (in the number of points) is stored in PointsHostBufferCapacity
 
 private:
 
-    static void CUDART_CB callback_from_stream(cudaStream_t stream, cudaError_t status, void *userData);
+//    static void CUDART_CB callback_from_stream(cudaStream_t stream, cudaError_t status, void *userData);
 };
 
 #endif

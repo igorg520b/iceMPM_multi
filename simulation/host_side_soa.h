@@ -78,7 +78,7 @@ class HostSideSOA
 public:
     double *host_buffer = nullptr; // buffer in page-locked memory for transferring the data between device and host
     unsigned capacity;  // max number of points that the host-side buffer can hold
-    unsigned size;      // the number of points, including "disabled" ones, in the host buffer (may fluctuate)
+    unsigned size = 0;      // the number of points, including "disabled" ones, in the host buffer (may fluctuate)
 
     SOAIterator begin(){return SOAIterator(0, host_buffer, capacity);}
     SOAIterator end(){return SOAIterator(size, host_buffer, capacity);}

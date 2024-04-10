@@ -120,16 +120,16 @@ icy::VisualRepresentation::VisualRepresentation()
 void icy::VisualRepresentation::SynchronizeTopology()
 {
     spdlog::info("SynchronizeTopology()");
-    points->SetNumberOfPoints(model->prms.nPts);
-    visualized_values->SetNumberOfValues(model->prms.nPts);
+    points->SetNumberOfPoints(model->prms.nPtsTotal);
+    visualized_values->SetNumberOfValues(model->prms.nPtsTotal);
     indenterSource->SetRadius(model->prms.IndDiameter/2.f);
 
     SynchronizeValues();
 
-    int &gx = model->prms.GridX;
-    int &gy = model->prms.GridY;
+    int gx = model->prms.GridXTotal;
+    int gy = model->prms.GridY;
     double &h = model->prms.cellsize;
-    structuredGrid->SetDimensions(model->prms.GridX, model->prms.GridY, 1);
+    structuredGrid->SetDimensions(gx, gy, 1);
 
     grid_points->SetNumberOfPoints(gx*gy);
     for(int idx_y=0; idx_y<gy; idx_y++)
@@ -146,23 +146,29 @@ void icy::VisualRepresentation::SynchronizeTopology()
 
 void icy::VisualRepresentation::SynchronizeValues()
 {
-    spdlog::info("SynchronizeValues() npts {}", model->prms.nPts);
+    spdlog::info("SynchronizeValues() npts {}", model->prms.nPtsTotal);
     double indenter_x = model->prms.indenter_x;
     double indenter_y = model->prms.indenter_y;
     indenterSource->SetCenter(indenter_x, indenter_y, 1);
 
-    for(int i=0;i<model->prms.nPts;i++)
+
+    unsigned activePtsCount = 0;
+    for(int i=0;i<model->gpu.hssoa.size;i++)
     {
-        Eigen::Vector2d pos = icy::Point::getPos(model->gpu.tmp_transfer_buffer, model->prms.nPtsPitch, i);
-        points->SetPoint((vtkIdType)i, pos[0], pos[1], 0);
+        SOAIterator s = model->gpu.hssoa.begin()+i;
+        if(s->getDisabledStatus()) continue;
+        Eigen::Vector2d pos = s->getPos();
+        points->SetPoint((vtkIdType)activePtsCount, pos[0], pos[1], 0);
+//        spdlog::info("setting point {}; {} - {}", activePtsCount, pos[0], pos[1]);
+        activePtsCount++;
     }
     points->Modified();
-
+    actor_points->GetProperty()->SetPointSize(model->prms.ParticleViewSize);
+    points_filter->Update();
+/*
     double centerVal = 0;
     double range = std::pow(10,ranges[VisualizingVariable]);
 
-    actor_points->GetProperty()->SetPointSize(model->prms.ParticleViewSize);
-    points_filter->Update();
 
     if(VisualizingVariable == VisOpt::NACC_case)
     {
@@ -238,98 +244,12 @@ void icy::VisualRepresentation::SynchronizeValues()
     else
     {
         points_mapper->ScalarVisibilityOff();
-//        points_polydata->GetPointData()->RemoveArray(0);
         scalarBar->VisibilityOff();
     }
-    /*
 
 */
-
-    /*
-    actor_points->GetProperty()->SetPointSize(model->prms.ParticleViewSize);
-
-    model->hostside_data_update_mutex.lock();
-//#pragma omp parallel
-    for(int i=0;i<model->points.size();i++)
-    {
-        const icy::Point &p = model->points[i];
-        double x[3] {p.pos[0], p.pos[1], 0};
-        points->SetPoint((vtkIdType)i, x);
-      }
-
-    double centerVal = 0;
-    double range = std::pow(10,ranges[VisualizingVariable]);
-    points_mapper->SetLookupTable(lutMPM);
-    scalarBar->SetLookupTable(lutMPM);
-
-
-    if(VisualizingVariable == VisOpt::none)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, 0);
-    }
-    else if(VisualizingVariable == VisOpt::NACC_case)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, model->points[i].q);
-        points_mapper->SetLookupTable(hueLut_four);
-        scalarBar->SetLookupTable(hueLut_four);
-    }
-    else if(VisualizingVariable == VisOpt::NACC_case_first)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, model->points[i].case_when_Jp_first_changes);
-        points_mapper->SetLookupTable(hueLut_four);
-        scalarBar->SetLookupTable(hueLut_four);
-    }
-    else if(VisualizingVariable == VisOpt::Jp)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, model->points[i].Jp_inv-1);
-    }
-    else if(VisualizingVariable == VisOpt::Jp_positive)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, model->points[i].Jp_inv>1 ? 1. : 0.);
-    }
-    else if(VisualizingVariable == VisOpt::zeta)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, model->points[i].zeta-1);
-    }
-    else if(VisualizingVariable == VisOpt::p0)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, model->points[i].visualize_p0);
-        //centerVal = model->prms.IceCompressiveStrength;
-        points_mapper->SetLookupTable(hueLut);
-        scalarBar->SetLookupTable(hueLut);
-    }
-    else if(VisualizingVariable == VisOpt::q_limit)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, model->points[i].visualize_q_limit);
-        points_mapper->SetLookupTable(hueLut);
-        scalarBar->SetLookupTable(hueLut);
-    }
-    else if(VisualizingVariable == VisOpt::p_tr)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, model->points[i].visualize_p);
-//        centerVal = (model->prms.IceCompressiveStrength-model->prms.IceTensileStrength)/2;
-        points_mapper->SetLookupTable(hueLut);
-        scalarBar->SetLookupTable(hueLut);
-    }
-    else if(VisualizingVariable == VisOpt::q_tr)
-    {
-        for(int i=0;i<model->points.size();i++) visualized_values->SetValue((vtkIdType)i, model->points[i].visualize_q);
-        points_mapper->SetLookupTable(hueLut);
-        scalarBar->SetLookupTable(hueLut);
-    }
-
-
-//    float minmax[2];
-//    visualized_values->GetValueRange(minmax);
-    lutMPM->SetTableRange(centerVal-range, centerVal+range);
-    hueLut->SetTableRange(centerVal-range, centerVal+range);
-
-    points->Modified();
-    visualized_values->Modified();
-    points_filter->Update();
-    indenterSource->SetCenter(model->prms.indenter_x, model->prms.indenter_y, 1);
-
-*/
+    points_mapper->ScalarVisibilityOff();
+    scalarBar->VisibilityOff();
 }
 
 

@@ -70,8 +70,8 @@ std::string icy::SimParams::ParseFile(std::string fileName)
 
     if(doc.HasMember("InitialTimeStep")) InitialTimeStep = doc["InitialTimeStep"].GetDouble();
     if(doc.HasMember("YoungsModulus")) YoungsModulus = doc["YoungsModulus"].GetDouble();
-    if(doc.HasMember("GridX")) GridXTotal = doc["GridX"].GetUint();
-    if(doc.HasMember("GridY")) GridY = doc["GridY"].GetUint();
+    if(doc.HasMember("GridX")) GridXTotal = doc["GridX"].GetInt();
+    if(doc.HasMember("GridY")) GridY = doc["GridY"].GetInt();
     if(doc.HasMember("GridXDimension")) GridXDimension = doc["GridXDimension"].GetDouble();
     if(doc.HasMember("ParticleViewSize")) ParticleViewSize = doc["ParticleViewSize"].GetDouble();
     if(doc.HasMember("SimulationEndTime")) SimulationEndTime = doc["SimulationEndTime"].GetDouble();
@@ -90,11 +90,11 @@ std::string icy::SimParams::ParseFile(std::string fileName)
     if(doc.HasMember("DP_threshold_p")) DP_threshold_p = doc["DP_threshold_p"].GetDouble();
     if(doc.HasMember("GrainVariability")) GrainVariability = doc["GrainVariability"].GetDouble();
 
-    if(doc.HasMember("tpb_P2G")) tpb_P2G = doc["tpb_P2G"].GetUint();
-    if(doc.HasMember("tpb_Upd")) tpb_Upd = doc["tpb_Upd"].GetUint();
-    if(doc.HasMember("tpb_G2P")) tpb_G2P = doc["tpb_G2P"].GetUint();
+    if(doc.HasMember("tpb_P2G")) tpb_P2G = doc["tpb_P2G"].GetInt();
+    if(doc.HasMember("tpb_Upd")) tpb_Upd = doc["tpb_Upd"].GetInt();
+    if(doc.HasMember("tpb_G2P")) tpb_G2P = doc["tpb_G2P"].GetInt();
     if(doc.HasMember("GridHaloSize")) GridHaloSize = doc["GridHaloSize"].GetInt();
-    if(doc.HasMember("nPartitions")) nPartitions = doc["nPartitions"].GetUint();
+    if(doc.HasMember("nPartitions")) nPartitions = doc["nPartitions"].GetInt();
 
     ComputeCamClayParams2();
     ComputeHelperVariables();

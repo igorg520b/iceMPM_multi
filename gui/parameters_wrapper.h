@@ -67,10 +67,10 @@ class ParamsWrapper : public QObject
 
     // ice block
     Q_PROPERTY(int b_PtActual READ getPointCountActual NOTIFY propertyChanged)
-    int getPointCountActual() {return prms->nPts;}
+    int getPointCountActual() {return prms->nPtsTotal;}
 
     Q_PROPERTY(QString b_Grid READ getGridDimensions NOTIFY propertyChanged)
-    QString getGridDimensions() {return QString("%1 x %2").arg(prms->GridX).arg(prms->GridY);}
+    QString getGridDimensions() {return QString("%1 x %2").arg(prms->GridXTotal).arg(prms->GridY);}
 
     Q_PROPERTY(double nacc_beta READ getNaccBeta NOTIFY propertyChanged)
     double getNaccBeta() {return prms->NACC_beta;}

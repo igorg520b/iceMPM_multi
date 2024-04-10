@@ -20,8 +20,8 @@ struct icy::SimParams
 {
 public:
     constexpr static double pi = 3.14159265358979323846;
-    constexpr static unsigned dim = 2;
-    constexpr static unsigned nGridArrays = 3;
+    constexpr static int dim = 2;
+    constexpr static int nGridArrays = 3;
 
     // index of the corresponding array in SoA
     constexpr static size_t idx_utility_data = 0;
@@ -34,16 +34,16 @@ public:
     constexpr static size_t Bp00 = Fe00 + 4;
     constexpr static size_t nPtsArrays = Bp00 + 4;
 
-    unsigned n_indenter_subdivisions;
-    unsigned tpb_P2G, tpb_Upd, tpb_G2P;  // threads per block for each operation
+    int n_indenter_subdivisions;
+    int tpb_P2G, tpb_Upd, tpb_G2P;  // threads per block for each operation
 
-    unsigned nPtsTotal;
-    unsigned GridXTotal, GridY, GridTotal;
+    int nPtsTotal;
+    int GridXTotal, GridY, GridTotal;
     double GridXDimension;
 
     double InitialTimeStep, SimulationEndTime;
-    unsigned UpdateEveryNthStep; // run N steps without update
-    unsigned SimulationStep;
+    int UpdateEveryNthStep; // run N steps without update
+    int SimulationStep;
     double SimulationTime;
 
     // material properties
@@ -60,13 +60,13 @@ public:
 
     double cellsize, cellsize_inv, Dp_inv;
     double xmin, xmax, ymin, ymax;            // bounding box of the material
-    unsigned nxmin, nxmax, nymin, nymax;         // same, but nuber of grid cells
+    int nxmin, nxmax, nymin, nymax;         // same, but nuber of grid cells
 
     double ParticleVolume, ParticleMass, ParticleViewSize;
 
     double indenter_x, indenter_x_initial, indenter_y, indenter_y_initial;
     double Volume;  // total volume (area) of the object
-    unsigned SetupType;  // 0 - ice block horizontal indentation; 1 - cone uniaxial compression
+    int SetupType;  // 0 - ice block horizontal indentation; 1 - cone uniaxial compression
     double GrainVariability;
 
     // multi-GPU params
@@ -74,9 +74,9 @@ public:
     double ExtraSpaceForIncomingPoints;     // percentage of points per partition
     double PointsTransferBufferFraction;    // space for points that can "fly over" per simulation step
 
-    unsigned nPartitions; // number of partitions (ideally, one partition per device)
-    unsigned VectorCapacity_transfer;   // vector capacity for points that fly to another partition
-    unsigned VectorCapacity_disabled;   // for "disabled" points (points from the middle of the list that flew away
+    int nPartitions; // number of partitions (ideally, one partition per device)
+    int VectorCapacity_transfer;   // vector capacity for points that fly to another partition
+    int VectorCapacity_disabled;   // for "disabled" points (points from the middle of the list that flew away
 
     // computed parameters/properties
     double dt_vol_Dpinv, dt_Gravity, vmax, vmax_squared;

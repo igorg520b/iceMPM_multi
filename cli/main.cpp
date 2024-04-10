@@ -46,28 +46,23 @@ int main(int argc, char** argv)
         std::string pointCloudFile = model.prms.ParseFile(params_file);
         snapshot.LoadRawPoints(pointCloudFile);
     }
-/*
-    // what to do once the data is available
+
+
     model.gpu.transfer_completion_callback = [&](){
         if(snapshot_thread.joinable()) snapshot_thread.join();
         snapshot_thread = std::thread([&](){
             int snapshot_number = model.prms.AnimationFrameNumber();
             if(request_terminate) { model.UnlockCycleMutex(); std::cout << "snapshot aborted\n"; return; }
             spdlog::info("cycle callback {}; compute_time_per_cycle {}", snapshot_number, model.compute_time_per_cycle);
-            snapshot.SaveSnapshot(snapshot_directory);
+            //snapshot.SaveSnapshot(snapshot_directory);
             model.UnlockCycleMutex();
             spdlog::info("callback {} done", snapshot_number);
         });
     };
-*/
     // ensure that the folder exists
     std::filesystem::path outputFolder(snapshot_directory);
     std::filesystem::create_directory(outputFolder);
 
-    model.Step();
-    model.gpu.synchronize();
-
-    /*
     // start the simulation thread
     std::thread simulation_thread([&](){
         bool result;
@@ -98,7 +93,7 @@ int main(int argc, char** argv)
     simulation_thread.join();
     model.gpu.synchronize();
     snapshot_thread.join();
-*/
+
     std::cout << "cm done\n";
 
     return 0;

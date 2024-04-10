@@ -19,7 +19,6 @@ MainWindow::MainWindow(QWidget *parent)
 
     params = new ParamsWrapper(&model.prms);
     snapshot.model = &model;
-    model.gpu.initialize();
     representation.model = &model;
     worker = new BackgroundWorker(&model);
     representation.SynchronizeTopology();

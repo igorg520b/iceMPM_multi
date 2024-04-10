@@ -15,42 +15,42 @@
 
 
 // kernels
-__global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, const unsigned pitch_grid,
-                              const unsigned count_pts, const unsigned pitch_pts,
+__global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, const int pitch_grid,
+                              const int count_pts, const int pitch_pts,
                                      const double *buffer_pts, double *buffer_grid);
 
 
 // receive grid data from adjacent partitions
-__global__ void partition_kernel_receive_halos(const unsigned haloElementCount, const unsigned gridX,
-                                               const unsigned pitch_grid, double *buffer_grid);
+__global__ void partition_kernel_receive_halos(const int haloElementCount, const int gridX,
+                                               const int pitch_grid, double *buffer_grid);
 
 
 __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
-                                              const unsigned nNodes, const unsigned gridX_offset, const unsigned pitch_grid,
+                                              const int nNodes, const int gridX_offset, const int pitch_grid,
                                               double *_buffer_grid, double *indenter_force_accumulator);
 
 
 __global__ void partition_kernel_g2p(const bool recordPQ,
-                                     const int gridX, const int gridX_offset, const unsigned pitch_grid,
-                                     const unsigned count_pts, const unsigned pitch_pts,
+                                     const int gridX, const int gridX_offset, const int pitch_grid,
+                                     const int count_pts, const int pitch_pts,
                                      double *buffer_pts, const double *buffer_grid,
-                                     double *_point_transfer_buffer[4], unsigned *vector_data_disabled_points,
+                                     double *_point_transfer_buffer[4],
                                      int *utility_data,
-                                     const unsigned VectorCapacity_transfer, const unsigned VectorCapacity_disabled);
+                                     const int VectorCapacity_transfer, const int VectorCapacity_disabled);
 
 
 // take points from the receive buffer and add them to the list
-__global__ void partition_kernel_receive_points(const unsigned count_left, const unsigned count_right,
-                                                const unsigned count_pts, const unsigned pitch_pts,
+__global__ void partition_kernel_receive_points(const int count_left, const int count_right,
+                                                const int count_pts, const int pitch_pts,
                                                 double *buffer_pts,
-                                                double *point_transfer_buffer[4], unsigned *vector_data_disabled_points,
+                                                double *point_transfer_buffer[4],
                                                 int *utility_data);
 
 // device functions used by kernels
-__device__ void PreparePointForTransfer(const unsigned pt_idx, const int whichSide, double *_point_transfer_buffer[4],
-                                        unsigned *vector_data_disabled_points, int *utility_data,
+__device__ void PreparePointForTransfer(const int pt_idx, const int whichSide, double *_point_transfer_buffer[4],
+                                        int *vector_data_disabled_points, int *utility_data,
                                         icy::Point &p,
-                                        const unsigned VectorCapacity_transfer, const unsigned VectorCapacity_disabled);
+                                        const int VectorCapacity_transfer, const int VectorCapacity_disabled);
 
 __device__ Eigen::Matrix2d polar_decomp_R(const Eigen::Matrix2d &val);
 __device__ void svd(const double a[4], double u[4], double sigma[2], double v[4]);
@@ -80,11 +80,11 @@ struct GPU_Partition
 
     // preparation
     void initialize(int device, int partition);
-    void allocate(unsigned n_points_capacity, unsigned grid_x_capacity);
-    void transfer_points_from_soa_to_device(HostSideSOA &hssoa, unsigned point_idx_offset);
+    void allocate(int n_points_capacity, int grid_x_capacity);
+    void transfer_points_from_soa_to_device(HostSideSOA &hssoa, int point_idx_offset);
     void clear_utility_vectors();
     void update_constants();
-    void transfer_from_device(HostSideSOA &hssoa, unsigned point_idx_offset);
+    void transfer_from_device(HostSideSOA &hssoa, int point_idx_offset);
 
     // calculation
     void reset_grid();
@@ -93,7 +93,7 @@ struct GPU_Partition
     void receive_halos();   // neightbour halos were copied, but we need to incorporate them into the grid
     void update_nodes();
     void g2p(const bool recordPQ);
-    void receive_points(unsigned nFromLeft, unsigned nFromRight);
+    void receive_points(int nFromLeft, int nFromRight);
 
     // helper functions
     double *getHaloAddress(int whichHalo, int whichGridArray);
@@ -132,7 +132,7 @@ struct GPU_Partition
     double *pts_array, *grid_array, *indenter_force_accumulator;
 
     // Four GPU-side vectors to keep track of points that escape and arrive
-    unsigned *vector_data_disabled_points;  // list of indices <nPts_partition of "disabled" points
+//    int *vector_data_disabled_points;  // list of indices <nPts_partition of "disabled" points
     // points that fly to/from the adjacent partitions (left-out, right-out, left-in, right-in)
     double *point_transfer_buffer[4];
 };

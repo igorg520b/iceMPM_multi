@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.27)
 
-#set(CMAKE_CUDA_ARCHITECTURES "89")
-
 project(RHITA_MPM_multi LANGUAGES CXX C CUDA)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -132,14 +130,16 @@ if(BUILD_GUI_VERSION)
         simulation/givens.cuh
         simulation/helper_math.cuh
         simulation/gpu_implementation5.h
-        simulation/gpu_implementation5.cu
-
+        simulation/gpu_implementation5.cpp
 
         simulation/snapshotmanager.h
         simulation/snapshotmanager.cpp
 
         simulation/host_side_soa.h
         simulation/host_side_soa.cpp
+        simulation/gpu_partition.h
+        simulation/gpu_partition.cu
+
     )
 
     set_target_properties(iceMPM_GUI_m PROPERTIES CUDA_ARCHITECTURES "80")

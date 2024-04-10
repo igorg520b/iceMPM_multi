@@ -15,51 +15,31 @@ bool icy::Model::Step()
     double simulation_time = prms.SimulationTime;
     std::cout << '\n';
     spdlog::info("step {} ({}) started; sim_time {:.3}", prms.SimulationStep, prms.SimulationStep/prms.UpdateEveryNthStep, simulation_time);
-    int count_unupdated_steps = 0;
 
+    int count_unupdated_steps = 0;
     gpu.reset_indenter_force_accumulator();
 
-
-    simulation_time += prms.InitialTimeStep;
-    prms.indenter_x = prms.indenter_x_initial + simulation_time*prms.IndVelocity;
-
-    count_unupdated_steps++;
-    gpu.reset_grid();
-    gpu.p2g();
-    gpu.receive_halos();
-    gpu.update_nodes();
-    gpu.g2p((prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep == 0);
-    gpu.receive_points();
-    gpu.transfer_from_device();
-
-    /*
-
-    if(prms.SimulationStep % (prms.UpdateEveryNthStep*2) == 0) cudaEventRecord(gpu.eventCycleStart);
     do
     {
-        gpu.cuda_reset_grid();
-        gpu.cuda_p2g();
-        gpu.cuda_g2p();
+        simulation_time += prms.InitialTimeStep;
+        prms.indenter_x = prms.indenter_x_initial + simulation_time*prms.IndVelocity;
+
+        gpu.reset_grid();
+        gpu.p2g();
+//        gpu.receive_halos();
+        gpu.update_nodes();
+        gpu.g2p((prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep == 0);
+//        gpu.receive_points();
+
+        count_unupdated_steps++;
     } while((prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep != 0);
-    if(prms.SimulationStep % (prms.UpdateEveryNthStep*2) == 0) cudaEventRecord(gpu.eventCycleStop);
 
+    gpu.transfer_from_device();
     processing_current_cycle_data.lock();   // if locked, previous results are not yet processed by the host
-
-    gpu.cuda_transfer_from_device();
-
-    if(prms.SimulationStep % (prms.UpdateEveryNthStep*2) != 0)
-    {
-        cudaEventSynchronize(gpu.eventCycleStop);
-        cudaEventElapsedTime(&compute_time_per_cycle, gpu.eventCycleStart, gpu.eventCycleStop);
-        compute_time_per_cycle /= prms.UpdateEveryNthStep;
-        spdlog::info("cycle time {:.3} ms", compute_time_per_cycle);
-    }
 
     prms.SimulationTime = simulation_time;
     prms.SimulationStep += count_unupdated_steps;
-    return (prms.SimulationTime < prms.SimulationEndTime && !gpu.error_code);
-*/
-    return true;
+    return (prms.SimulationTime < prms.SimulationEndTime);
 }
 
 
