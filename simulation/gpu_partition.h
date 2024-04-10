@@ -15,11 +15,12 @@
 
 
 // kernels
-__global__ void partition_kernel_p2g(const unsigned gridX, const unsigned gridX_offset, const unsigned pitch_grid,
+__global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, const unsigned pitch_grid,
                               const unsigned count_pts, const unsigned pitch_pts,
                                      const double *buffer_pts, double *buffer_grid);
 
 
+// receive grid data from adjacent partitions
 __global__ void partition_kernel_receive_halos(const unsigned haloElementCount, const unsigned gridX,
                                                const unsigned pitch_grid, double *buffer_grid);
 
@@ -29,19 +30,25 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
                                               double *_buffer_grid, double *indenter_force_accumulator);
 
 
-
 __global__ void partition_kernel_g2p(const bool recordPQ,
                                      const int gridX, const int gridX_offset, const unsigned pitch_grid,
                                      const unsigned count_pts, const unsigned pitch_pts,
                                      double *buffer_pts, const double *buffer_grid,
                                      double *_point_transfer_buffer[4], unsigned *vector_data_disabled_points,
-                                     unsigned *utility_data,
+                                     int *utility_data,
                                      const unsigned VectorCapacity_transfer, const unsigned VectorCapacity_disabled);
 
 
+// take points from the receive buffer and add them to the list
+__global__ void partition_kernel_receive_points(const unsigned count_left, const unsigned count_right,
+                                                const unsigned count_pts, const unsigned pitch_pts,
+                                                double *buffer_pts,
+                                                double *point_transfer_buffer[4], unsigned *vector_data_disabled_points,
+                                                int *utility_data);
+
 // device functions used by kernels
 __device__ void PreparePointForTransfer(const unsigned pt_idx, const int whichSide, double *_point_transfer_buffer[4],
-                                        unsigned *vector_data_disabled_points, unsigned *utility_data,
+                                        unsigned *vector_data_disabled_points, int *utility_data,
                                         icy::Point &p,
                                         const unsigned VectorCapacity_transfer, const unsigned VectorCapacity_disabled);
 
@@ -62,7 +69,12 @@ __device__ Eigen::Matrix2d dev(Eigen::Matrix2d A);
 
 struct GPU_Partition
 {
-    constexpr static size_t utility_data_size = 3;
+    constexpr static int idx_transfer_to_left = 0;
+    constexpr static int idx_transfer_to_right = 1;
+    constexpr static int idx_points_added_to_soa = 2;
+    constexpr static int idx_disabled_indices = 3;
+    constexpr static size_t utility_data_size = 4;
+
     GPU_Partition();
     ~GPU_Partition();
 
@@ -72,6 +84,7 @@ struct GPU_Partition
     void transfer_points_from_soa_to_device(HostSideSOA &hssoa, unsigned point_idx_offset);
     void clear_utility_vectors();
     void update_constants();
+    void transfer_from_device(HostSideSOA &hssoa, unsigned point_idx_offset);
 
     // calculation
     void reset_grid();
@@ -80,14 +93,15 @@ struct GPU_Partition
     void receive_halos();   // neightbour halos were copied, but we need to incorporate them into the grid
     void update_nodes();
     void g2p(const bool recordPQ);
-    void receive_nodes(unsigned nFromLeft, unsigned nFromRight);
+    void receive_points(unsigned nFromLeft, unsigned nFromRight);
 
     // helper functions
     double *getHaloAddress(int whichHalo, int whichGridArray);
     double *getHaloReceiveAddress(int whichHalo, int whichGridArray);
-    unsigned getLeftBufferCount() {return host_side_utility_data[0];}
-    unsigned getRightBufferCount() {return host_side_utility_data[1];}
-    unsigned getDisabledPtsCount() {return host_side_utility_data[2];}
+    int getLeftBufferCount() {return host_side_utility_data[idx_transfer_to_left];}
+    int getRightBufferCount() {return host_side_utility_data[idx_transfer_to_right];}
+    int getAddedPtsCount() {return host_side_utility_data[idx_points_added_to_soa];}
+    int getDisabledPtsCount() {return host_side_utility_data[idx_disabled_indices];}
 
     // host-side data
     int PartitionID;
@@ -100,6 +114,7 @@ struct GPU_Partition
     int GridX_offset;      // index where the grid starts in this partition
 
     double *host_side_indenter_force_accumulator;
+    int *host_side_utility_data; // sizes of outbound pt tranfer buffers (2), disabled pts (1)
 
     // stream and events
     cudaStream_t streamCompute;
@@ -111,34 +126,15 @@ struct GPU_Partition
     bool initialized = false;
     uint8_t error_code = 0;
 
-    // for tesitng and debugging
-    unsigned *host_side_utility_data; // sizes of outbound pt tranfer buffers (2), disabled pts (1)
 
     // device-side data
-    unsigned *device_side_utility_data;
+    int *device_side_utility_data;
     double *pts_array, *grid_array, *indenter_force_accumulator;
 
     // Four GPU-side vectors to keep track of points that escape and arrive
     unsigned *vector_data_disabled_points;  // list of indices <nPts_partition of "disabled" points
     // points that fly to/from the adjacent partitions (left-out, right-out, left-in, right-in)
     double *point_transfer_buffer[4];
-
-/*
-    __device__ static void insert_into_stack(unsigned *__data, unsigned value, uint8_t *_partition_error_indicator)
-    {
-        // data[0] is the current counter
-        // data[1] is the capacity
-        unsigned *counter = __data;
-        unsigned *capacity = &__data[1];
-        unsigned *index_list = &data[2];
-        unsigned int idx = atomicAdd(counter, 1);
-        if(idx < *capacity)
-            index_list[idx] = value;
-        else
-            *_partition_error_indicator = 1;
-    }
-*/
-
 };
 
 

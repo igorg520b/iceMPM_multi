@@ -46,7 +46,7 @@ public:
     void g2p(bool recordPQ);
     void receive_points();
 
-    void cuda_transfer_from_device();
+    void transfer_from_device();
 
     // the size of this buffer (in the number of points) is stored in PointsHostBufferCapacity
 

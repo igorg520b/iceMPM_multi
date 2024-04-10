@@ -46,52 +46,6 @@ void GPU_Implementation5::device_allocate_arrays()
     }
 }
 
-void GPU_Implementation5::transfer_ponts_to_device()
-{
-    spdlog::info("GPU_Implementation: transfer_to_device() start");
-    const double &hinv = model->prms.cellsize_inv;
-
-    unsigned nPointsUploaded = 0;
-    const unsigned &nPartitions = model->prms.nPartitions;
-    unsigned GridOffset = 0;
-    // distribute points except of the last partition
-    for(int i=0;i<nPartitions;i++)
-    {
-        unsigned nPartitionsRemaining = nPartitions - i;
-        unsigned tentativePointCount = (hssoa.size - nPointsUploaded)/nPartitionsRemaining;
-        int tentativePointIndex = nPointsUploaded + tentativePointCount - 1;
-        SOAIterator it2 = hssoa.begin()+tentativePointIndex;
-        const ProxyPoint &pt = *it2;
-        int cellsIdx = pt.getXIndex(hinv);
-
-        // find the index of the first point with x-index cellsIdx
-        unsigned pt_idx;
-        if(i==(nPartitions-1)) pt_idx = hssoa.size;
-        else
-        {
-            pt_idx = hssoa.FindFirstPointAtGridXIndex(cellsIdx, hinv);
-            partitions[i+1].GridX_offset = cellsIdx;
-        }
-        partitions[i].GridX_partition = cellsIdx-partitions[i].GridX_offset;
-        partitions[i].nPts_partition = pt_idx-nPointsUploaded;
-
-        // TODO: remove this loop if the operation is too slow
-#pragma omp parallel for
-        for(int j=nPointsUploaded;j<pt_idx;j++)
-        {
-            SOAIterator it = hssoa.begin()+j;
-            it->setPartition((uint8_t)i);
-        }
-
-        spdlog::info("transfer partition {}; grid offset {}; grid size {}, npts {}",
-                     i, partitions[i].GridX_offset, partitions[i].GridX_partition, partitions[i].nPts_partition);
-        partitions[i].transfer_points_from_soa_to_device(hssoa, nPointsUploaded);
-        nPointsUploaded = pt_idx;
-    }
-
-    for(int i=0;i<partitions.size();i++) partitions[i].clear_utility_vectors();
-    spdlog::info("transfer_ponts_to_device() done; uploaded {}",nPointsUploaded);
-}
 
 
 void GPU_Implementation5::update_constants()
@@ -229,8 +183,8 @@ void GPU_Implementation5::receive_points()
         {
             // send buffer to the right
             GPU_Partition &pnxt = partitions[i+1];
-            double *dst_point_buffer = pnxt.point_transfer_buffer[3];
             double *src_point_buffer = p.point_transfer_buffer[1];
+            double *dst_point_buffer = pnxt.point_transfer_buffer[2];
             size_t count = p.getRightBufferCount()*sizeof(double)*icy::SimParams::nPtsArrays;
             err = cudaMemcpyPeerAsync(dst_point_buffer, pnxt.Device, src_point_buffer, p.Device, count, p.streamCompute);
             if(err != cudaSuccess) throw std::runtime_error("RP cudaMemcpyPeerAsync");
@@ -239,8 +193,8 @@ void GPU_Implementation5::receive_points()
         {
             // send buffer to the right
             GPU_Partition &pprev = partitions[i-1];
-            double *dst_point_buffer = pprev.point_transfer_buffer[2];
             double *src_point_buffer = p.point_transfer_buffer[0];
+            double *dst_point_buffer = pprev.point_transfer_buffer[3];
             size_t count = p.getLeftBufferCount()*sizeof(double)*icy::SimParams::nPtsArrays;
             err = cudaMemcpyPeerAsync(dst_point_buffer, pprev.Device, src_point_buffer, p.Device, count, p.streamCompute);
             if(err != cudaSuccess) throw std::runtime_error("RP cudaMemcpyPeerAsync");
@@ -262,32 +216,124 @@ void GPU_Implementation5::receive_points()
         unsigned left=0, right=0;
         if(i!=0)
         {
+            GPU_Partition &pprev = partitions[i-1];
             err = cudaStreamWaitEvent(p.streamCompute, partitions[i-1].event_pts_sent);
             if(err != cudaSuccess) throw std::runtime_error("RP wait event");
-            left = p.getLeftBufferCount();
+            left = pprev.getRightBufferCount();
         }
         if(i!=partitions.size()-1)
         {
+            GPU_Partition &pnxt = partitions[i+1];
             err = cudaStreamWaitEvent(p.streamCompute, partitions[i+1].event_pts_sent);
             if(err != cudaSuccess) throw std::runtime_error("RP wait event");
-            right = p.getRightBufferCount();
+            right = pnxt.getLeftBufferCount();
         }
-        p.receive_nodes(left, right);
+        p.receive_points(left, right);
     }
     spdlog::info("RP done");
 }
 
 
 
+
+
+void GPU_Implementation5::transfer_ponts_to_device()
+{
+    spdlog::info("GPU_Implementation: transfer_to_device() start");
+    const double &hinv = model->prms.cellsize_inv;
+
+    unsigned nPointsUploaded = 0;
+    const unsigned &nPartitions = model->prms.nPartitions;
+    unsigned GridOffset = 0;
+    // distribute points except of the last partition
+    for(int i=0;i<nPartitions;i++)
+    {
+        unsigned nPartitionsRemaining = nPartitions - i;
+        unsigned tentativePointCount = (hssoa.size - nPointsUploaded)/nPartitionsRemaining;
+        int tentativePointIndex = nPointsUploaded + tentativePointCount - 1;
+        SOAIterator it2 = hssoa.begin()+tentativePointIndex;
+        const ProxyPoint &pt = *it2;
+        int cellsIdx = pt.getXIndex(hinv);
+
+        // find the index of the first point with x-index cellsIdx
+        unsigned pt_idx;
+        if(i==(nPartitions-1)) pt_idx = hssoa.size;
+        else
+        {
+            pt_idx = hssoa.FindFirstPointAtGridXIndex(cellsIdx, hinv);
+            partitions[i+1].GridX_offset = cellsIdx;
+        }
+        partitions[i].GridX_partition = cellsIdx-partitions[i].GridX_offset;
+        partitions[i].nPts_partition = pt_idx-nPointsUploaded;
+
+// TODO: remove this loop if the operation is too slow
+#pragma omp parallel for
+        for(int j=nPointsUploaded;j<pt_idx;j++)
+        {
+            SOAIterator it = hssoa.begin()+j;
+            it->setPartition((uint8_t)i);
+        }
+
+        spdlog::info("transfer partition {}; grid offset {}; grid size {}, npts {}",
+                     i, partitions[i].GridX_offset, partitions[i].GridX_partition, partitions[i].nPts_partition);
+        partitions[i].transfer_points_from_soa_to_device(hssoa, nPointsUploaded);
+        nPointsUploaded = pt_idx;
+    }
+
+    for(int i=0;i<partitions.size();i++) partitions[i].clear_utility_vectors();
+    spdlog::info("transfer_ponts_to_device() done; uploaded {}",nPointsUploaded);
+}
+
+
+
+void GPU_Implementation5::transfer_from_device()
+{
+    unsigned offset_pts = 0;
+    for(int i=0;i<partitions.size();i++)
+    {
+        GPU_Partition &p = partitions[i];
+        p.transfer_from_device(hssoa, offset_pts);
+        offset_pts += p.nPts_partition;
+    }
+
+    // wait until everything is copied to host
+    for(int i=0;i<partitions.size();i++)
+    {
+        GPU_Partition &p = partitions[i];
+        cudaSetDevice(p.Device);
+        cudaStreamSynchronize(p.streamCompute);
+        if(p.error_code)
+        {
+            spdlog::critical("P {}; error code {}", p.PartitionID, p.error_code);
+            throw std::runtime_error("error code");
+        }
+    }
+
+    if(transfer_completion_callback) transfer_completion_callback();
+}
+
+
+/*
+    cudaError_t err = cudaMemcpyAsync(tmp_transfer_buffer, model->prms.pts_array,
+                                      model->prms.nPtsPitch*sizeof(double)*icy::SimParams::nPtsArrays,
+                                      cudaMemcpyDeviceToHost, streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("cuda_transfer_from_device");
+
+    err = cudaMemcpyAsync(host_side_indenter_force_accumulator, model->prms.indenter_force_accumulator,
+                          model->prms.IndenterArraySize(), cudaMemcpyDeviceToHost, streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("cuda_transfer_from_device");
+
+    err = cudaMemcpyFromSymbolAsync(&error_code, gpu_error_indicator, sizeof(int), 0, cudaMemcpyDeviceToHost, streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("cuda_transfer_from_device");
+
+    void* userData = reinterpret_cast<void*>(this);
+    cudaStreamAddCallback(streamCompute, GPU_Implementation5::callback_from_stream, userData, 0);
+*/
+
+
 /*
 
-
-
-
-
 // ==============================  kernels  ====================================
-
-
 
 __device__ Matrix2d polar_decomp_R(const Matrix2d &val)
 {
@@ -304,29 +350,6 @@ __device__ Matrix2d polar_decomp_R(const Matrix2d &val)
 
 
 // ========================================= initialization and kernel execution
-
-
-
-
-
-
-void GPU_Implementation5::cuda_transfer_from_device()
-{
-    cudaError_t err = cudaMemcpyAsync(tmp_transfer_buffer, model->prms.pts_array,
-                                      model->prms.nPtsPitch*sizeof(double)*icy::SimParams::nPtsArrays,
-                                      cudaMemcpyDeviceToHost, streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("cuda_transfer_from_device");
-
-    err = cudaMemcpyAsync(host_side_indenter_force_accumulator, model->prms.indenter_force_accumulator,
-                          model->prms.IndenterArraySize(), cudaMemcpyDeviceToHost, streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("cuda_transfer_from_device");
-
-    err = cudaMemcpyFromSymbolAsync(&error_code, gpu_error_indicator, sizeof(int), 0, cudaMemcpyDeviceToHost, streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("cuda_transfer_from_device");
-
-    void* userData = reinterpret_cast<void*>(this);
-    cudaStreamAddCallback(streamCompute, GPU_Implementation5::callback_from_stream, userData, 0);
-}
 
 void CUDART_CB GPU_Implementation5::callback_from_stream(cudaStream_t stream, cudaError_t status, void *userData)
 {
