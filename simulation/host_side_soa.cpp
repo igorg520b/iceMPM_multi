@@ -198,6 +198,22 @@ void ProxyPoint::setPartition(uint8_t PartitionID)
 }
 
 
+uint8_t ProxyPoint::getPartition()
+{
+    double dval;
+    if(isReference)
+    {
+        dval = soa[pos + pitch*icy::SimParams::idx_utility_data];
+    }
+    else
+    {
+        dval = data[icy::SimParams::idx_utility_data];
+    }
+    long long val = *reinterpret_cast<long long*>(&dval);
+    val >>= 24;
+    return (uint8_t)(val & 0xff);
+}
+
 
 
 bool ProxyPoint::getCrushedStatus()

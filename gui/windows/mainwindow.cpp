@@ -73,10 +73,10 @@ MainWindow::MainWindow(QWidget *parent)
 // anything that includes the Model
     renderer->AddActor(representation.actor_points);
     renderer->AddActor(representation.actor_grid);
+    renderer->AddActor(representation.actor_partitions);
     renderer->AddActor(representation.actor_indenter);
     renderer->AddActor(representation.actorText);
     renderer->AddActor(representation.scalarBar);
-
 
     // populate combobox
     QMetaEnum qme = QMetaEnum::fromType<icy::VisualRepresentation::VisOpt>();

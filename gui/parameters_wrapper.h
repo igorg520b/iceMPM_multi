@@ -124,7 +124,9 @@ class ParamsWrapper : public QObject
     Q_PROPERTY(double pt_per_cell READ getPtPerCell NOTIFY propertyChanged)
     double getPtPerCell() {return prms->PointsPerCell();}
 
-    //PointsPerCell()
+    Q_PROPERTY(double vc_transfer READ getVectorCapacityTransfer NOTIFY propertyChanged)
+    double getVectorCapacityTransfer() {return prms->VectorCapacity_transfer;}
+
 
 public:
     ParamsWrapper(icy::SimParams *p)

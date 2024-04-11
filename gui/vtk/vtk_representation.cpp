@@ -80,7 +80,6 @@ icy::VisualRepresentation::VisualRepresentation()
     actor_points->GetProperty()->SetInterpolationToFlat();
     actor_points->PickableOff();
 
-
     grid_mapper->SetInputData(structuredGrid);
 //    grid_mapper->SetLookupTable(hueLut);
 
@@ -91,8 +90,23 @@ icy::VisualRepresentation::VisualRepresentation()
     actor_grid->GetProperty()->ShadingOff();
     actor_grid->GetProperty()->SetInterpolationToFlat();
     actor_grid->PickableOff();
-    actor_grid->GetProperty()->SetColor(0.95,0.95,0.95);
+    actor_grid->GetProperty()->SetColor(0.98,0.98,0.98);
+//    actor_grid->GetProperty()->SetRepresentationToWireframe();
 
+    // partitions grid
+    partitions_grid_mapper->SetInputData(partitionsGrid);
+    actor_partitions->SetMapper(partitions_grid_mapper);
+    actor_partitions->GetProperty()->SetEdgeVisibility(true);
+    actor_partitions->GetProperty()->SetEdgeColor(0.8,0.8,0.8);
+    actor_partitions->GetProperty()->LightingOff();
+    actor_partitions->GetProperty()->ShadingOff();
+    actor_partitions->GetProperty()->SetInterpolationToFlat();
+    actor_partitions->PickableOff();
+    actor_partitions->GetProperty()->SetColor(0.4,0.4,0.4);
+    actor_partitions->GetProperty()->SetRepresentationToWireframe();
+    actor_partitions->GetProperty()->SetLineWidth(2);
+
+    // scalar bar
     scalarBar->SetLookupTable(lutMPM);
     scalarBar->SetMaximumWidthInPixels(130);
     scalarBar->SetBarRatio(0.07);
@@ -137,16 +151,40 @@ void icy::VisualRepresentation::SynchronizeTopology()
         {
             float x = idx_x * h;
             float y = idx_y * h;
-            double pt_pos[3] {x, y, -1.0};
+            double pt_pos[3] {x, y, -2.0};
             grid_points->SetPoint((vtkIdType)(idx_x+idx_y*gx), pt_pos);
         }
     structuredGrid->SetPoints(grid_points);
+
+    int nPartitions = model->gpu.partitions.size();
+    partitionsGrid->SetDimensions(nPartitions+1, 2, 1);
+    partitions_grid_points->SetNumberOfPoints((nPartitions+1)*2);
+    // partitions grid
+    double y1 = -0.5*h;
+    double y2 = (model->prms.GridY-0.5)*h;
+    for(int i=0;i<nPartitions;i++)
+    {
+        GPU_Partition &p = model->gpu.partitions[i];
+        double x =(p.GridX_offset - 0.5)*h;
+        double pt_pos1[3] {x,y1,-1.0};
+        partitions_grid_points->SetPoint(i, pt_pos1);
+        double pt_pos2[3] {x,y2,-1.0};
+        partitions_grid_points->SetPoint(i+nPartitions+1, pt_pos2);
+    }
+
+    double x =(model->prms.GridXTotal - 0.5)*h;
+    double pt_pos1[3] {x,y1,-0.5};
+    partitions_grid_points->SetPoint(nPartitions, pt_pos1);
+    double pt_pos2[3] {x,y2,-0.5};
+    partitions_grid_points->SetPoint(2*nPartitions + 1, pt_pos2);
+
+    partitionsGrid->SetPoints(partitions_grid_points);
 }
 
 
 void icy::VisualRepresentation::SynchronizeValues()
 {
-    spdlog::info("SynchronizeValues() npts {}", model->prms.nPtsTotal);
+    // spdlog::info("SynchronizeValues() npts {}", model->prms.nPtsTotal);
     double indenter_x = model->prms.indenter_x;
     double indenter_y = model->prms.indenter_y;
     indenterSource->SetCenter(indenter_x, indenter_y, 1);
@@ -165,12 +203,31 @@ void icy::VisualRepresentation::SynchronizeValues()
     points->Modified();
     actor_points->GetProperty()->SetPointSize(model->prms.ParticleViewSize);
     points_filter->Update();
-/*
-    double centerVal = 0;
     double range = std::pow(10,ranges[VisualizingVariable]);
+    double centerVal = 0;
 
 
-    if(VisualizingVariable == VisOpt::NACC_case)
+    if(VisualizingVariable == VisOpt::partition)
+    {
+        scalarBar->VisibilityOn();
+        points_mapper->ScalarVisibilityOn();
+        points_mapper->SetColorModeToMapScalars();
+        points_mapper->UseLookupTableScalarRangeOn();
+        points_mapper->SetLookupTable(hueLut_pastel);
+        scalarBar->SetLookupTable(hueLut_pastel);
+
+        visualized_values->SetNumberOfValues(model->prms.nPtsTotal);
+        activePtsCount = 0;
+        for(int i=0;i<model->gpu.hssoa.size;i++)
+        {
+            SOAIterator s = model->gpu.hssoa.begin()+i;
+            if(s->getDisabledStatus()) continue;
+            uint8_t partition = s->getPartition();
+            visualized_values->SetValue((vtkIdType)activePtsCount++, (float)partition);
+        }
+        visualized_values->Modified();
+    }
+    else if(VisualizingVariable == VisOpt::status)
     {
         scalarBar->VisibilityOn();
         points_mapper->ScalarVisibilityOn();
@@ -178,11 +235,15 @@ void icy::VisualRepresentation::SynchronizeValues()
         points_mapper->UseLookupTableScalarRangeOn();
         points_mapper->SetLookupTable(hueLut_four);
         scalarBar->SetLookupTable(hueLut_four);
-        hueLut->SetTableRange(centerVal-range, centerVal+range);
-
-        for(int i=0;i<model->prms.nPts;i++)
-            visualized_values->SetValue((vtkIdType)i,
-                                        icy::Point::getCrushedStatus(model->gpu.tmp_transfer_buffer, model->prms.nPtsPitch, i));
+        visualized_values->SetNumberOfValues(model->prms.nPtsTotal);
+        activePtsCount = 0;
+        for(int i=0;i<model->gpu.hssoa.size;i++)
+        {
+            SOAIterator s = model->gpu.hssoa.begin()+i;
+            if(s->getDisabledStatus()) continue;
+            bool isCrushed = s->getCrushedStatus();
+            visualized_values->SetValue((vtkIdType)activePtsCount++, (float)(isCrushed ? 1 : 0));
+        }
         visualized_values->Modified();
     }
     else if(VisualizingVariable == VisOpt::Jp_inv)
@@ -194,11 +255,15 @@ void icy::VisualRepresentation::SynchronizeValues()
         points_mapper->SetLookupTable(lutMPM);
         scalarBar->SetLookupTable(lutMPM);
         lutMPM->SetTableRange(centerVal-range, centerVal+range);
-
-        visualized_values->SetNumberOfValues(model->prms.nPts);
-        for(int i=0;i<model->prms.nPts;i++)
-            visualized_values->SetValue((vtkIdType)i,
-                                        icy::Point::getJp_inv(model->gpu.tmp_transfer_buffer, model->prms.nPtsPitch, i)-1);
+        visualized_values->SetNumberOfValues(model->prms.nPtsTotal);
+        activePtsCount = 0;
+        for(int i=0;i<model->gpu.hssoa.size;i++)
+        {
+            SOAIterator s = model->gpu.hssoa.begin()+i;
+            if(s->getDisabledStatus()) continue;
+            double value = s->getValue(icy::SimParams::idx_Jp_inv)-1;
+            visualized_values->SetValue((vtkIdType)activePtsCount++, (float)value);
+        }
         visualized_values->Modified();
     }
     else if(VisualizingVariable == VisOpt::grains)
@@ -210,34 +275,14 @@ void icy::VisualRepresentation::SynchronizeValues()
         points_mapper->SetLookupTable(hueLut_pastel);
         scalarBar->SetLookupTable(hueLut_pastel);
 
-        visualized_values->SetNumberOfValues(model->prms.nPts);
-        for(int i=0;i<model->prms.nPts;i++)
+        visualized_values->SetNumberOfValues(model->prms.nPtsTotal);
+        activePtsCount = 0;
+        for(int i=0;i<model->gpu.hssoa.size;i++)
         {
-            int value = 40;
-            uint8_t crushed = icy::Point::getCrushedStatus(model->gpu.tmp_transfer_buffer, model->prms.nPtsPitch, i);
-            if(!crushed) value = icy::Point::getGrain(model->gpu.tmp_transfer_buffer, model->prms.nPtsPitch, i)%40;
-            visualized_values->SetValue((vtkIdType)i, (float)value);
-        }
-        visualized_values->Modified();
-    }
-    else if(VisualizingVariable == VisOpt::special_count)
-    {
-        scalarBar->VisibilityOn();
-        points_mapper->ScalarVisibilityOn();
-        points_mapper->SetColorModeToMapScalars();
-        points_mapper->UseLookupTableScalarRangeOn();
-        points_mapper->SetLookupTable(hueLut);
-        scalarBar->SetLookupTable(hueLut);
-        hueLut->SetTableRange(0,8);
-
-        visualized_values->SetNumberOfValues(model->prms.nPts);
-        for(int i=0;i<model->prms.nPts;i++)
-        {
-            int value = 40;
-            char* ptr_intact = (char*)(&model->gpu.tmp_transfer_buffer[model->prms.nPtsPitch*icy::SimParams::idx_utility_data]);
-            uint8_t* ptr_special_count = (uint8_t*)(&ptr_intact[model->prms.nPtsPitch*3]);
-            value = ptr_special_count[i];
-            visualized_values->SetValue((vtkIdType)i, (float)value);
+            SOAIterator s = model->gpu.hssoa.begin()+i;
+            if(s->getDisabledStatus()) continue;
+            uint16_t grain = s->getGrain()%40;
+            visualized_values->SetValue((vtkIdType)activePtsCount++, (float)grain);
         }
         visualized_values->Modified();
     }
@@ -247,9 +292,6 @@ void icy::VisualRepresentation::SynchronizeValues()
         scalarBar->VisibilityOff();
     }
 
-*/
-    points_mapper->ScalarVisibilityOff();
-    scalarBar->VisibilityOff();
 }
 
 

@@ -39,10 +39,45 @@ void GPU_Implementation5::device_allocate_arrays()
     partitions.resize(nPartitions);
     for(int i=0;i<nPartitions;i++)
     {
-        GPU_Partition &partition = partitions[i];
-        partition.initialize(whichDevice, i);
-        partition.allocate(points_requested_per_partition, model->prms.GridXTotal); // at this time, we allocate the full grid
+        GPU_Partition &p = partitions[i];
+        p.initialize(whichDevice, i);
+        p.allocate(points_requested_per_partition, model->prms.GridXTotal); // at this time, we allocate the full grid
         whichDevice = (whichDevice+1)%deviceCount;  // spread partitions across the available devices
+    }
+
+    for(int i=0;i<nPartitions;i++)
+    {
+        GPU_Partition &p = partitions[i];
+        if(i!=0)
+        {
+            GPU_Partition &pprev = partitions[i-1];
+            // enable access to device on the left
+            if(p.Device != pprev.Device)
+            {
+                err = cudaDeviceEnablePeerAccess(pprev.Device, 0);
+                if(err != cudaSuccess)
+                {
+                    const char *errorString = cudaGetErrorString(err);
+                    spdlog::critical("{}; cannot enable peer-peer access from {} to {}; error: ", err, p.PartitionID, pprev.PartitionID, errorString);
+                    throw std::runtime_error("GPU_Implementation5::device_allocate_arrays() cudaDeviceEnablePeerAccess");
+                }
+            }
+        }
+        if(i!=nPartitions-1)
+        {
+            GPU_Partition &pnxt = partitions[i+1];
+            // enable access to device on the right
+            if(p.Device != pnxt.Device)
+            {
+                err = cudaDeviceEnablePeerAccess(pnxt.Device, 0);
+                if(err != cudaSuccess)
+                {
+                    const char *errorString = cudaGetErrorString(err);
+                    spdlog::critical("{}; cannot enable peer-peer access from {} to {}; error: ", err, p.PartitionID, pnxt.PartitionID, errorString);
+                    throw std::runtime_error("GPU_Implementation5::device_allocate_arrays() cudaDeviceEnablePeerAccess");
+                }
+            }
+        }
     }
 }
 
@@ -160,7 +195,7 @@ void GPU_Implementation5::p2g()
     {
         GPU_Partition &p = partitions[i];
         p.p2g();
-/*
+
         if(i!=(partitions.size()-1))
         {
             GPU_Partition &pnxt = partitions[i+1];
@@ -168,10 +203,12 @@ void GPU_Implementation5::p2g()
             {
                 double *halo_src1 = p.getHaloAddress(1, j);
                 double *halo_dst1 = pnxt.getHaloReceiveAddress(0, j);
-                err = cudaMemcpyPeerAsync(halo_dst1, pnxt.Device, halo_src1, p.Device, haloSize, p.streamCompute);
+//                err = cudaMemcpyPeerAsync(halo_dst1, pnxt.Device, halo_src1, p.Device, haloSize, p.streamCompute);
+                err = cudaMemcpyAsync(halo_dst1, halo_src1, haloSize, cudaMemcpyDeviceToDevice,p.streamCompute);
                 if(err != cudaSuccess) throw std::runtime_error("p2g cudaMemcpyPeerAsync");
             }
         }
+/*
         if(i!=0)
         {
             GPU_Partition &pprev = partitions[i-1];
@@ -179,7 +216,8 @@ void GPU_Implementation5::p2g()
             {
                 double *halo_src1 = p.getHaloAddress(0, j);
                 double *halo_dst1 = pprev.getHaloReceiveAddress(1, j);
-                err = cudaMemcpyPeerAsync(halo_dst1, pprev.Device, halo_src1, p.Device, haloSize, p.streamCompute);
+//                err = cudaMemcpyPeerAsync(halo_dst1, pprev.Device, halo_src1, p.Device, haloSize, p.streamCompute);
+                err = cudaMemcpyAsync(halo_dst1, halo_src1, haloSize, cudaMemcpyDeviceToDevice, p.streamCompute);
                 if(err != cudaSuccess) throw std::runtime_error("p2g cudaMemcpyPeerAsync");
             }
         }
@@ -236,7 +274,12 @@ void GPU_Implementation5::receive_points()
 //        err = cudaEventSynchronize(p.event_utility_data_transferred);
 //        if(err != cudaSuccess) throw std::runtime_error("RP cudaEventSynchronize");
         err = cudaStreamSynchronize(p.streamCompute);
-        if(err != cudaSuccess) throw std::runtime_error("RP cudaStreamSynchronize");
+        if(err != cudaSuccess)
+        {
+            const char *errorString = cudaGetErrorString(err);
+            spdlog::critical("receive_points partition {}; error {}", p.PartitionID, errorString);
+            throw std::runtime_error("RP cudaStreamSynchronize");
+        }
 
         if(i!=(partitions.size()-1))
         {
@@ -244,9 +287,15 @@ void GPU_Implementation5::receive_points()
             GPU_Partition &pnxt = partitions[i+1];
             double *src_point_buffer = p.point_transfer_buffer[1];
             double *dst_point_buffer = pnxt.point_transfer_buffer[2];
-            size_t count = p.getRightBufferCount()*sizeof(double)*icy::SimParams::nPtsArrays;
-            err = cudaMemcpyPeerAsync(dst_point_buffer, pnxt.Device, src_point_buffer, p.Device, count, p.streamCompute);
-            if(err != cudaSuccess) throw std::runtime_error("RP cudaMemcpyPeerAsync");
+            int right_buffer_count = p.getRightBufferCount();
+            size_t count = right_buffer_count*sizeof(double)*icy::SimParams::nPtsArrays;
+            if(count != 0)
+            {
+                spdlog::info("transferring {} r-points from P {} to P {}", right_buffer_count, p.PartitionID, pnxt.PartitionID);
+//                err = cudaMemcpyPeerAsync(dst_point_buffer, pnxt.Device, src_point_buffer, p.Device, count, p.streamCompute);
+                err = cudaMemcpyPeer(dst_point_buffer, pnxt.Device, src_point_buffer, p.Device, count);
+                if(err != cudaSuccess) throw std::runtime_error("RP cudaMemcpyPeerAsync");
+            }
         }
         if(i!=0)
         {
@@ -254,9 +303,15 @@ void GPU_Implementation5::receive_points()
             GPU_Partition &pprev = partitions[i-1];
             double *src_point_buffer = p.point_transfer_buffer[0];
             double *dst_point_buffer = pprev.point_transfer_buffer[3];
-            size_t count = p.getLeftBufferCount()*sizeof(double)*icy::SimParams::nPtsArrays;
-            err = cudaMemcpyPeerAsync(dst_point_buffer, pprev.Device, src_point_buffer, p.Device, count, p.streamCompute);
-            if(err != cudaSuccess) throw std::runtime_error("RP cudaMemcpyPeerAsync");
+            int left_buffer_count = p.getLeftBufferCount();
+            size_t count = left_buffer_count*sizeof(double)*icy::SimParams::nPtsArrays;
+            if(count != 0)
+            {
+                spdlog::info("transferring {} l-points from P {} to P {}", left_buffer_count, p.PartitionID, pprev.PartitionID);
+//                err = cudaMemcpyPeerAsync(dst_point_buffer, pprev.Device, src_point_buffer, p.Device, count, p.streamCompute);
+                err = cudaMemcpyPeer(dst_point_buffer, pprev.Device, src_point_buffer, p.Device, count);
+                if(err != cudaSuccess) throw std::runtime_error("RP cudaMemcpyPeerAsync");
+            }
         }
         err = cudaEventRecord(p.event_pts_sent, p.streamCompute);
         if(err != cudaSuccess)

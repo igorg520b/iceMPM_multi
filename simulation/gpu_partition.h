@@ -36,7 +36,7 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
                                      double *buffer_pts, const double *buffer_grid,
                                      double *_point_transfer_buffer[4],
                                      int *utility_data,
-                                     const int VectorCapacity_transfer, const int VectorCapacity_disabled);
+                                     const int VectorCapacity_transfer);
 
 
 // take points from the receive buffer and add them to the list
@@ -48,9 +48,9 @@ __global__ void partition_kernel_receive_points(const int count_left, const int 
 
 // device functions used by kernels
 __device__ void PreparePointForTransfer(const int pt_idx, const int whichSide, double *_point_transfer_buffer[4],
-                                        int *vector_data_disabled_points, int *utility_data,
+                                        int *utility_data,
                                         icy::Point &p,
-                                        const int VectorCapacity_transfer, const int VectorCapacity_disabled);
+                                        const int VectorCapacity_transfer);
 
 __device__ Eigen::Matrix2d polar_decomp_R(const Eigen::Matrix2d &val);
 __device__ void svd(const double a[4], double u[4], double sigma[2], double v[4]);

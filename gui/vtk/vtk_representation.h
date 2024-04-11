@@ -47,7 +47,7 @@ public:
 
     icy::Model *model;
 
-    enum VisOpt { none, NACC_case, Jp_inv, grains, special_count };
+    enum VisOpt { none, status, Jp_inv, grains, partition };
     Q_ENUM(VisOpt)
     VisOpt VisualizingVariable = VisOpt::none;
     double ranges[20] = {};
@@ -59,6 +59,7 @@ public:
     vtkNew<vtkLookupTable> hueLut, lutMPM;
     vtkNew<vtkActor> actor_points;
     vtkNew<vtkActor> actor_grid;
+    vtkNew<vtkActor> actor_partitions;
     vtkNew<vtkActor> actor_indenter;
     vtkNew<vtkScalarBarActor> scalarBar;
 
@@ -83,6 +84,11 @@ private:
     vtkNew<vtkStructuredGrid> structuredGrid;
     vtkNew<vtkDataSetMapper> grid_mapper;
     vtkNew<vtkPoints> grid_points;
+
+    // partitions grid
+    vtkNew<vtkStructuredGrid> partitionsGrid;
+    vtkNew<vtkDataSetMapper> partitions_grid_mapper;
+    vtkNew<vtkPoints> partitions_grid_points;
 
     static constexpr float lutArrayMPMColors[101][3] =
     {{0.25098, 0.556863, 0.756863}, {0.245961, 0.547294,
