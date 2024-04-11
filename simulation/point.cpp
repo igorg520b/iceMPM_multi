@@ -10,7 +10,6 @@ void icy::Point::Reset()
     Fe.setIdentity();
     velocity.setZero();
     Bp.setZero();
-    crushed = false;
     Jp_inv = 1;
 }
 /*

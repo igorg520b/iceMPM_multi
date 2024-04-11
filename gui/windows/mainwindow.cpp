@@ -271,7 +271,11 @@ void MainWindow::load_parameter_triggered()
 {
     QString qFileName = QFileDialog::getOpenFileName(this, "Load Parameters", QDir::currentPath(), "JSON Files (*.json)");
     if(qFileName.isNull())return;
+    LoadParameterFile(qFileName);
+}
 
+void MainWindow::LoadParameterFile(QString qFileName)
+{
     std::string pointCloudFile = model.prms.ParseFile(qFileName.toStdString());
     snapshot.LoadRawPoints(pointCloudFile);
     this->qLastParameterFile = qFileName;
@@ -281,8 +285,6 @@ void MainWindow::load_parameter_triggered()
     pbrowser->setActiveObject(params);
     updateGUI();
 }
-
-
 
 
 void MainWindow::simulation_data_ready()

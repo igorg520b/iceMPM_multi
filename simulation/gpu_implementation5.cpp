@@ -50,6 +50,7 @@ void GPU_Implementation5::transfer_ponts_to_device()
 {
     spdlog::info("GPU_Implementation: transfer_to_device() start");
     const double &hinv = model->prms.cellsize_inv;
+    const int &GridXTotal = model->prms.GridXTotal;
 
     unsigned nPointsUploaded = 0;
     const unsigned &nPartitions = model->prms.nPartitions;
@@ -72,7 +73,8 @@ void GPU_Implementation5::transfer_ponts_to_device()
             pt_idx = hssoa.FindFirstPointAtGridXIndex(cellsIdx, hinv);
             partitions[i+1].GridX_offset = cellsIdx;
         }
-        partitions[i].GridX_partition = cellsIdx-partitions[i].GridX_offset;
+        // last partition must span to the "end" of the gird along the x-axis
+        partitions[i].GridX_partition = i==nPartitions-1 ? GridXTotal-partitions[i].GridX_offset : cellsIdx-partitions[i].GridX_offset;
         partitions[i].nPts_partition = pt_idx-nPointsUploaded;
 
 // TODO: remove this loop if the operation is too slow

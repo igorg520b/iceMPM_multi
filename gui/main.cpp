@@ -21,14 +21,12 @@ int main(int argc, char *argv[])
 
     const QStringList args = parser.positionalArguments();
     MainWindow w;
-    /*
+
     if(args.size() == 1)
     {
         QString parameters_file = args[0];
-        std::string dummy;
-        w.model.prms.ParseFile(parameters_file.toStdString(), dummy);
+        w.LoadParameterFile(parameters_file);
     }
-    */
 
     w.resize(1400,900);
 //    w.show();

@@ -24,7 +24,7 @@ struct icy::Point
     Eigen::Vector2d vSigma, vSigmaSquared, v_s_hat_tr;
 
     long long utility_data;
-    uint8_t crushed;
+//    uint8_t crushed;
 
     void Reset();
 /*    void TransferToBuffer(double *buffer, const int pitch, const int point_index) const;  // distribute to SOA

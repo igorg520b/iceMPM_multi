@@ -50,7 +50,12 @@ void HostSideSOA::Allocate(unsigned capacity)
     this->capacity = capacity;
     size_t allocation_size = sizeof(double)*capacity*icy::SimParams::nPtsArrays;
     cudaError_t err = cudaMallocHost(&host_buffer, allocation_size);
-    if(err!=cudaSuccess) throw std::runtime_error("allocating host buffer for points");
+    if(err != cudaSuccess)
+    {
+        const char *description = cudaGetErrorString(err);
+        spdlog::critical("allocating host buffer of size {}: {}",allocation_size,description);
+        throw std::runtime_error("allocating host buffer for points");
+    }
     size = 0;
     memset(host_buffer, 0, allocation_size);
     spdlog::info("HSSOA allocate capacity {} pt; toal {} Gb", capacity, (double)allocation_size/(1024.*1024.*1024.));
@@ -75,7 +80,7 @@ void HostSideSOA::InitializeBlock()
     for(SOAIterator it = begin(); it!=end(); ++it)
     {
         ProxyPoint &p = *it;
-
+        p.setValue(icy::SimParams::idx_Jp_inv,1);
         for(int i=0; i<icy::SimParams::dim; i++)
             for(int j=0; j<icy::SimParams::dim; j++)
                 p.setValue(icy::SimParams::Fe00+i*2+j, identity(i,j));

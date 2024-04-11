@@ -68,6 +68,7 @@ public:
     ~MainWindow();
     void closeEvent( QCloseEvent* event ) override;
     icy::Model model;
+    void LoadParameterFile(QString qFileName);    // return file name of the point cloud
 
 private Q_SLOTS:
     void quit_triggered();
@@ -88,7 +89,6 @@ private:
     void updateActorText();
     void save_binary_data();
 
-    std::string LoadParameterFile(std::string fileName);    // return file name of the point cloud
     void OpenSnapshot(QString fileName);
 
     BackgroundWorker *worker;

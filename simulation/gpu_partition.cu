@@ -54,8 +54,8 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
     }
 
     Matrix2d PFt = KirchhoffStress_Wolper(Fe);
-    Matrix2d subterm2 = particle_mass*Bp - (gprms.dt_vol_Dpinv)*PFt;
-//    Matrix2d subterm2 = particle_mass*Bp - (dt*vol*Dinv)*PFt;
+//    Matrix2d subterm2 = particle_mass*Bp - (gprms.dt_vol_Dpinv)*PFt;
+    Matrix2d subterm2 = particle_mass*Bp - (gprms.InitialTimeStep*gprms.ParticleVolume*gprms.Dp_inv)*PFt;
 
     Eigen::Vector2i base_coord_i = (pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // coords of base grid node for point
     Vector2d base_coord = base_coord_i.cast<double>();
@@ -78,8 +78,11 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
             // the x-index of the cell takes into accout the partition's offset of the gird fragment
             int i2 = i+base_coord_i[0]-gridX_offset;
             int j2 = j+base_coord_i[1];
-            int idx_gridnode = j2 + (i2+halo*3)*gridY;  // two halo lines are reserved for the incoming halo data
-            if(i2<(-halo) || j2<0 || i2>=(gridX+halo) || j2>=gridY) gpu_error_indicator = 7;
+            int idx_gridnode = j2 + i2*gridY;  // two halo lines are reserved for the incoming halo data
+            if(i2<(-halo)) gpu_error_indicator = 70;
+            if(j2<0) gpu_error_indicator = 71;
+            if(i2>=(gridX+halo)) gpu_error_indicator = 72;
+            if(j2>=gridY) gpu_error_indicator = 73;
 
             // Udpate mass, velocity and force
             atomicAdd(&buffer_grid[0*pitch_grid + idx_gridnode], incM);
@@ -91,17 +94,15 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
 
 __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
                                               const int nNodes, const int gridX_offset, const int pitch_grid,
-                                              double *_buffer_grid, double *indenter_force_accumulator)
+                                              double *buffer_grid, double *indenter_force_accumulator)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if(idx >= nNodes) return;
 
     const int &halo = gprms.GridHaloSize;
     const int &gridY = gprms.GridY;
-    const int offset = halo*3*gridY;
 
-    double *buffer_grid = _buffer_grid + 3*gprms.GridY*gprms.GridHaloSize;    // actual grid buffer comes after 3x halo regions
-    double mass = buffer_grid[idx + offset];
+    double mass = buffer_grid[idx];
     if(mass == 0) return;
 
     const double &gravity = gprms.Gravity;
@@ -116,13 +117,13 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
     const Vector2d vco(ind_velocity,0);  // velocity of the collision object (indenter)
 
     Vector2i gi(idx/gridY + gridX_offset, idx%gridY);   // integer x-y index of the grid node
-    Vector2d velocity(buffer_grid[1*pitch_grid + idx + offset], buffer_grid[2*pitch_grid + idx + offset]);
+    Vector2d velocity(buffer_grid[1*pitch_grid + idx], buffer_grid[2*pitch_grid + idx]);
     velocity /= mass;
     velocity[1] -= gprms.dt_Gravity;
     if(velocity.squaredNorm() > vmax_squared) velocity = velocity.normalized()*vmax;
 
     Vector2d gnpos = gi.cast<double>()*cellsize;    // position of the grid node in the whole grid
-/*
+
     // indenter
     Vector2d n = gnpos - indCenter;
     if(n.squaredNorm() < indRsq)
@@ -147,13 +148,12 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
             atomicAdd(&indenter_force_accumulator[1+2*index], force[1]);
         }
     }
-*/
 
     // attached bottom layer
     if(gi.y() <= 2) velocity.setZero();
-//    else if(gi.y() >= gridY-3 && velocity[1]>0) velocity[1] = 0;
-//    if(gi.x() <= 2 && velocity[0]<0) velocity[0] = 0;
-//    else if(gi.x() >= gridXTotal-3 && velocity[0]>0) velocity[0] = 0;
+    else if(gi.y() >= gridY-3 && velocity[1]>0) velocity[1] = 0;
+    if(gi.x() <= 2 && velocity[0]<0) velocity[0] = 0;
+    else if(gi.x() >= gridXTotal-3 && velocity[0]>0) velocity[0] = 0;
 
     // side boundary conditions
     //    int blocksGridX = gprms.BlockLength*gprms.cellsize_inv+5-2;
@@ -162,8 +162,8 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
     //    if(idx_x <= 7 && idx_x > 4 && idx_y < blocksGridY) velocity.setZero();
 
     // write the updated grid velocity back to memory
-    buffer_grid[1*pitch_grid + idx + offset] = velocity[0];
-    buffer_grid[2*pitch_grid + idx + offset] = velocity[1];
+    buffer_grid[1*pitch_grid + idx] = velocity[0];
+    buffer_grid[2*pitch_grid + idx] = velocity[1];
 }
 
 __global__ void partition_kernel_receive_halos(const int haloElementCount,
@@ -207,10 +207,6 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
     const int &gridY = gprms.GridY;
     const double &mu = gprms.mu;
     const double &kappa = gprms.kappa;
-    const int offset = halo*3*gridY;
-
-    p.velocity.setZero();
-    p.Bp.setZero();
 
     // pull point data from SOA
     for(int i=0; i<icy::SimParams::dim; i++)
@@ -223,7 +219,7 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
     }
     p.Jp_inv = buffer_pts[pt_idx + pitch_pts*icy::SimParams::idx_Jp_inv];
     p.grain = (short)p.utility_data;
-    p.crushed = (p.utility_data >> 16) & 0x1;
+    //p.crushed = (p.utility_data >> 16) & 0x1;
 
     // coords of base grid node for point
     Eigen::Vector2i base_coord_i = (p.pos*h_inv - Vector2d::Constant(0.5)).cast<int>();
@@ -236,6 +232,9 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
     Array2d arr_v2 = fx.array() - 0.5;
     Array2d ww[3] = {0.5*arr_v0*arr_v0, 0.75-arr_v1*arr_v1, 0.5*arr_v2*arr_v2};
 
+    p.velocity.setZero();
+    p.Bp.setZero();
+
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
         {
@@ -244,7 +243,7 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
 
             int i2 = i+base_coord_i[0]-gridX_offset;
             int j2 = j+base_coord_i[1];
-            int idx_gridnode = j2 + (i2+halo*3)*gridY;  // two halo lines are reserved for the incoming halo data
+            int idx_gridnode = j2 + i2*gridY;
 
             Vector2d node_velocity;
             node_velocity[0] = buffer_grid[1*pitch_grid + idx_gridnode];
@@ -257,10 +256,10 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
     p.pos += p.velocity * dt;
     p.Fe = (Matrix2d::Identity() + dt*p.Bp) * p.Fe;     // p.Bp is the gradient of the velocity vector (it seems)
 
-//    ComputePQ(p, kappa, mu);    // pre-computes USV, p, q, etc.
+    ComputePQ(p, kappa, mu);    // pre-computes USV, p, q, etc.
 
-//    if(p.crushed == 0) CheckIfPointIsInsideFailureSurface(p);
-//    if(p.crushed == 1) Wolper_Drucker_Prager(p);
+    if(!(p.utility_data & status_crushed)) CheckIfPointIsInsideFailureSurface(p);
+    if(p.utility_data & status_crushed) Wolper_Drucker_Prager(p);
 
     // if a point is about to move to another GPU partition/device, disable it and store in a special array
 /*    base_coord_i = (p.pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // update the base node index
@@ -339,17 +338,6 @@ __global__ void partition_kernel_receive_points(const int count_left, const int 
     {
         buffer_pts[idx_added_pt + i*pitch_pts] = transfer_buffer[i + icy::SimParams::nPtsArrays*idx];
     }
-
-    // TODO: try to reuse disabled locations (?)
-    //    int disabled_count = atomicSub(&utility_data[3],1);
-    //    if(disabled_count > 0)
-    //    {
-    // write the point into a previously disabled location
-    //    }
-    //    else
-    //    {
-    // add the point to the end of the list
-    //    }
 }
 
 
@@ -442,6 +430,7 @@ __device__ void Wolper_Drucker_Prager(icy::Point &p)
     const double &pmax = gprms.IceCompressiveStrength;
     const double &qmax = gprms.IceShearStrength;
 
+
     if(p.p_tr < -DP_threshold_p || p.Jp_inv < 1)
     {
         // tear in tension or compress until original state
@@ -471,12 +460,14 @@ __device__ void Wolper_Drucker_Prager(icy::Point &p)
         {
             // project onto YS
             double s_hat_n_1_norm = q_n_1/coeff1;
-            //            Matrix2d B_hat_E_new = s_hat_n_1_norm*(pow(Je_tr,2./d)/mu)*s_hat_tr.normalized() + Matrix2d::Identity()*(SigmaSquared.trace()/d);
-            Vector2d vB_hat_E_new = s_hat_n_1_norm*(p.Je_tr/mu)*p.v_s_hat_tr.normalized() + Vector2d::Constant(1.)*(p.vSigmaSquared.sum()/d);
+            //Matrix2d B_hat_E_new = s_hat_n_1_norm*(pow(Je_tr,2./d)/mu)*s_hat_tr.normalized() + Matrix2d::Identity()*(SigmaSquared.trace()/d);
+            Vector2d vB_hat_E_new = s_hat_n_1_norm*(p.Je_tr/mu)*p.v_s_hat_tr.normalized() +
+                                    Vector2d::Constant(1.)*(p.vSigmaSquared.sum()/d);
             Vector2d vSigma_new = vB_hat_E_new.array().sqrt().matrix();
             p.Fe = p.U*vSigma_new.asDiagonal()*p.V.transpose();
         }
     }
+
 }
 
 
@@ -488,10 +479,10 @@ __device__ void GetParametersForGrain(short grain, double &pmin, double &pmax, d
 
     pmax = gprms.IceCompressiveStrength;// * var1;
     pmin = -gprms.IceTensileStrength;// * var2;
-    qmax = gprms.IceShearStrength * var3;
+    qmax = gprms.IceShearStrength;// * var3;
 
-//    beta = gprms.NACC_beta;
-        beta = -pmin / pmax;
+    beta = gprms.NACC_beta;
+//        beta = -pmin / pmax;
     //    double NACC_M = (2*qmax*sqrt(1+2*beta))/(pmax*(1+beta));
     //    mSq = NACC_M*NACC_M;
     mSq = (4*qmax*qmax*(1+2*beta))/((pmax*(1+beta))*(pmax*(1+beta)));
@@ -514,18 +505,17 @@ __device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p)
     const double pmin2 = -3e6;  // TODO: move this magic parameter to params
     if(p.p_tr<0)
     {
-        if(p.p_tr<pmin2) {p.crushed = 1; return;}
+        if(p.p_tr<pmin2) {p.utility_data |= status_crushed; return;}
         double q0 = 2*sqrt(-pmax*pmin)*qmax/(pmax-pmin);
         double k = -q0/pmin2;
         double q_limit = k*(p.p_tr-pmin2);
-        if(p.q_tr > q_limit) {p.crushed = 1; return;}
+        if(p.q_tr > q_limit) {p.utility_data |= status_crushed; return;}
     }
     else
     {
         double y = (1.+2.*beta)*p.q_tr*p.q_tr + M_sq*(p.p_tr + beta*pmax)*(p.p_tr - pmax);
         if(y > 0)
         {
-            p.crushed = 1;
             p.utility_data |= status_crushed;
         }
     }
@@ -592,7 +582,8 @@ void GPU_Partition::transfer_from_device(HostSideSOA &hssoa, int point_idx_offse
                               prms->IndenterArraySize(), cudaMemcpyDeviceToHost, streamCompute);
         if(err != cudaSuccess) throw std::runtime_error("transfer_from_device() cudaMemcpyAsync indenter");
 
-        err = cudaMemcpyFromSymbolAsync(&error_code, gpu_error_indicator, sizeof(error_code), 0, cudaMemcpyDeviceToHost, streamCompute);
+        err = cudaMemcpyFromSymbolAsync(&error_code, gpu_error_indicator, sizeof(error_code), 0, cudaMemcpyDeviceToHost,
+                                        streamCompute);
         if(err != cudaSuccess) throw std::runtime_error("transfer_from_device");
     }
 }
@@ -612,7 +603,8 @@ void GPU_Partition::receive_points(int nFromLeft, int nFromRight)
     const int &tpb = 64;
     const int nBlocks = (n + tpb - 1) / tpb;
     partition_kernel_receive_points<<<nBlocks, tpb, 0, streamCompute>>>(nFromLeft, nFromRight,
-                                                                        nPts_partition, nPtsPitch, pts_array, point_transfer_buffer,
+                                                                        nPts_partition, nPtsPitch, pts_array,
+                                                                        point_transfer_buffer,
                                                                         device_side_utility_data);
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("receive_nodes kernel execution");
     nPts_partition += total;
@@ -621,57 +613,11 @@ void GPU_Partition::receive_points(int nFromLeft, int nFromRight)
 
 
 
-void GPU_Partition::g2p(const bool recordPQ)
-{
-    cudaError_t err;
-    err = cudaSetDevice(Device);
-    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p cudaSetDevice");
-
-    // clear the counters for (0) left transfer, (1) right transfer, (2) added to the end of the list
-    err = cudaMemsetAsync(device_side_utility_data, 0, 3*sizeof(int), streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("g2p cudaMemset");
-
-    const int &n = nPts_partition;
-    const int &tpb = prms->tpb_G2P;
-    const int nBlocks = (n + tpb - 1) / tpb;
-
-
-    partition_kernel_g2p<<<nBlocks, tpb, 0, streamCompute>>>(recordPQ,
-            GridX_partition, GridX_offset, nGridPitch,
-            nPts_partition, nPtsPitch,
-            pts_array, grid_array,
-            point_transfer_buffer, device_side_utility_data,
-            prms->VectorCapacity_transfer, prms->VectorCapacity_disabled);
-
-    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p kernel");
-
-    err = cudaMemcpyAsync(host_side_utility_data, device_side_utility_data, sizeof(int)*utility_data_size, cudaMemcpyDeviceToHost, streamCompute);
-    if(err != cudaSuccess)
-    {
-        const char* errorString = cudaGetErrorString(err);
-        spdlog::critical("error {}; host {}; device {}",errorString, (void*)host_side_utility_data, (void*)device_side_utility_data);
-        throw std::runtime_error("GPU_Partition::g2p cudaMemcpy");
-    }
-    err = cudaEventRecord(event_utility_data_transferred, streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition::g2p cudaEventRecord");
-}
 
 
 
 
 
-void GPU_Partition::update_nodes()
-{
-    cudaSetDevice(Device);
-    const int nGridNodes = prms->GridY * GridX_partition;
-    int tpb = prms->tpb_Upd;
-    int nBlocks = (nGridNodes + tpb - 1) / tpb;
-    Eigen::Vector2d ind_center(prms->indenter_x, prms->indenter_y);
-
-    partition_kernel_update_nodes<<<nBlocks, tpb, 0, streamCompute>>>(ind_center, nGridNodes, GridX_offset,
-        nGridPitch, grid_array, indenter_force_accumulator);
-    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("update_nodes");
-}
 
 
 
@@ -683,7 +629,8 @@ void GPU_Partition::receive_halos()
     const int haloElementCount = prms->GridHaloSize*prms->GridY;
     const int tpb = 512;   // threads per block
     const int blocksPerGrid = (haloElementCount + tpb - 1) / tpb;
-    partition_kernel_receive_halos<<<blocksPerGrid, tpb, 0, streamCompute>>>(haloElementCount, GridX_partition, nGridPitch, grid_array);
+    partition_kernel_receive_halos<<<blocksPerGrid, tpb, 0, streamCompute>>>(haloElementCount, GridX_partition,
+                                                                             nGridPitch, grid_array);
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("receive_halos kernel execution");
 }
 
@@ -900,15 +847,73 @@ void GPU_Partition::reset_indenter_force_accumulator()
 }
 
 
+// ============================== main simulation steps
+
 void GPU_Partition::p2g()
 {
+    size_t offset = prms->GridHaloSize*3*prms->GridY;
+    double *grid_with_offset = grid_array + offset;
+
     cudaSetDevice(Device);
     const int &n = nPts_partition;
     const int &tpb = prms->tpb_P2G;
     const int blocksPerGrid = (n + tpb - 1) / tpb;
     partition_kernel_p2g<<<blocksPerGrid, tpb, 0, streamCompute>>>(GridX_partition, GridX_offset, nGridPitch,
-                         nPts_partition, nPtsPitch, pts_array, grid_array);
+                         nPts_partition, nPtsPitch, pts_array, grid_with_offset);
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("p2g kernel");
 }
 
+void GPU_Partition::update_nodes()
+{
+    size_t offset = prms->GridHaloSize*3*prms->GridY;
+    double *grid_with_offset = grid_array + offset;
 
+    cudaSetDevice(Device);
+    const int nGridNodes = prms->GridY * GridX_partition;
+    int tpb = prms->tpb_Upd;
+    int nBlocks = (nGridNodes + tpb - 1) / tpb;
+    Eigen::Vector2d ind_center(prms->indenter_x, prms->indenter_y);
+
+    partition_kernel_update_nodes<<<nBlocks, tpb, 0, streamCompute>>>(ind_center, nGridNodes, GridX_offset,
+                                                                      nGridPitch, grid_with_offset, indenter_force_accumulator);
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("update_nodes");
+}
+
+void GPU_Partition::g2p(const bool recordPQ)
+{
+    cudaError_t err;
+    err = cudaSetDevice(Device);
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p cudaSetDevice");
+
+    // clear the counters for (0) left transfer, (1) right transfer, (2) added to the end of the list
+    err = cudaMemsetAsync(device_side_utility_data, 0, 3*sizeof(int), streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("g2p cudaMemset");
+
+    const int &n = nPts_partition;
+    const int &tpb = prms->tpb_G2P;
+    const int nBlocks = (n + tpb - 1) / tpb;
+
+    size_t offset = prms->GridHaloSize*3*prms->GridY;
+    double *grid_with_offset = grid_array + offset;
+
+    partition_kernel_g2p<<<nBlocks, tpb, 0, streamCompute>>>(recordPQ,
+                                                             GridX_partition, GridX_offset, nGridPitch,
+                                                             nPts_partition, nPtsPitch,
+                                                             pts_array, grid_with_offset,
+                                                             point_transfer_buffer, device_side_utility_data,
+                                                             prms->VectorCapacity_transfer, prms->VectorCapacity_disabled);
+
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p kernel");
+
+    err = cudaMemcpyAsync(host_side_utility_data, device_side_utility_data, sizeof(int)*utility_data_size,
+                          cudaMemcpyDeviceToHost, streamCompute);
+    if(err != cudaSuccess)
+    {
+        const char* errorString = cudaGetErrorString(err);
+        spdlog::critical("error {}; host {}; device {}",errorString, (void*)host_side_utility_data,
+                         (void*)device_side_utility_data);
+        throw std::runtime_error("GPU_Partition::g2p cudaMemcpy");
+    }
+    err = cudaEventRecord(event_utility_data_transferred, streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition::g2p cudaEventRecord");
+}
