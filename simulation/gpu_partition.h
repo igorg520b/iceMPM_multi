@@ -22,7 +22,8 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
 
 // receive grid data from adjacent partitions
 __global__ void partition_kernel_receive_halos(const int haloElementCount, const int gridX,
-                                               const int pitch_grid, double *buffer_grid);
+                                               const int pitch_grid, double *buffer_grid,
+const double *halo0, const double *halo1);
 
 
 __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
@@ -34,23 +35,22 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
                                      const int gridX, const int gridX_offset, const int pitch_grid,
                                      const int count_pts, const int pitch_pts,
                                      double *buffer_pts, const double *buffer_grid,
-                                     double *_point_transfer_buffer[4],
                                      int *utility_data,
-                                     const int VectorCapacity_transfer);
+                                     const int VectorCapacity_transfer,
+                                     double *point_buffer_left, double *point_buffer_right);
 
 
 // take points from the receive buffer and add them to the list
-__global__ void partition_kernel_receive_points(const int count_left, const int count_right,
+__global__ void partition_kernel_receive_points(const int count_transfer,
                                                 const int count_pts, const int pitch_pts,
                                                 double *buffer_pts,
-                                                double *point_transfer_buffer[4],
-                                                int *utility_data);
+                                                double *point_transfer_buffer);
 
-// device functions used by kernels
-__device__ void PreparePointForTransfer(const int pt_idx, const int whichSide, double *_point_transfer_buffer[4],
-                                        int *utility_data,
-                                        icy::Point &p,
-                                        const int VectorCapacity_transfer);
+// write point from SOA into a tanfer buffer
+__device__ void PreparePointForTransfer(const int pt_idx, const int index_in_transfer_buffer,
+                                        double *point_transfer_buffer, const int pitch_pts,
+                                        const double *buffer_pts);
+
 
 __device__ Eigen::Matrix2d polar_decomp_R(const Eigen::Matrix2d &val);
 __device__ void svd(const double a[4], double u[4], double sigma[2], double v[4]);
@@ -135,6 +135,9 @@ struct GPU_Partition
 //    int *vector_data_disabled_points;  // list of indices <nPts_partition of "disabled" points
     // points that fly to/from the adjacent partitions (left-out, right-out, left-in, right-in)
     double *point_transfer_buffer[4];
+
+    // testing
+    double *halo_transfer_buffer[2];
 };
 
 

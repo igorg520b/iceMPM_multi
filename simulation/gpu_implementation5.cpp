@@ -138,6 +138,14 @@ void GPU_Implementation5::transfer_from_device()
     for(int i=0;i<partitions.size();i++)
     {
         GPU_Partition &p = partitions[i];
+        int capacity_required = offset_pts + p.nPts_partition;
+        if(capacity_required > hssoa.capacity)
+        {
+            spdlog::critical("transfer_from_device(): capacity {} exceeded ({}) when transferring P {}",
+                             hssoa.capacity, capacity_required, p.PartitionID);
+            throw std::runtime_error("transfer_from_device capacity exceeded");
+        }
+
         p.transfer_from_device(hssoa, offset_pts);
         offset_pts += p.nPts_partition;
     }
@@ -190,7 +198,12 @@ void GPU_Implementation5::reset_indenter_force_accumulator()
 void GPU_Implementation5::p2g()
 {
     cudaError_t err;
-    const size_t haloSize = model->prms.GridHaloSize*sizeof(double)*model->prms.GridY;
+    const int &halo = model->prms.GridHaloSize;
+    const int &gridY = model->prms.GridY;
+    const int &gridXT = model->prms.GridXTotal;
+
+    const size_t count = sizeof(double)*partitions[0].nGridPitch*icy::SimParams::nGridArrays;
+
     for(int i=0;i<partitions.size();i++)
     {
         GPU_Partition &p = partitions[i];
@@ -198,30 +211,30 @@ void GPU_Implementation5::p2g()
 
         if(i!=(partitions.size()-1))
         {
+            // send halo to the right
             GPU_Partition &pnxt = partitions[i+1];
             for(int j=0;j<icy::SimParams::nGridArrays;j++)
             {
-                double *halo_src1 = p.getHaloAddress(1, j);
-                double *halo_dst1 = pnxt.getHaloReceiveAddress(0, j);
 //                err = cudaMemcpyPeerAsync(halo_dst1, pnxt.Device, halo_src1, p.Device, haloSize, p.streamCompute);
-                err = cudaMemcpyAsync(halo_dst1, halo_src1, haloSize, cudaMemcpyDeviceToDevice,p.streamCompute);
-                if(err != cudaSuccess) throw std::runtime_error("p2g cudaMemcpyPeerAsync");
+//                err = cudaMemcpyAsync(halo_dst1, halo_src1, haloSize, cudaMemcpyDeviceToDevice,p.streamCompute);
             }
+            err = cudaMemcpy(pnxt.halo_transfer_buffer[1], p.grid_array, count, cudaMemcpyDeviceToDevice);
+            if(err != cudaSuccess) throw std::runtime_error("p2g cudaMemcpyPeerAsync");
         }
-/*
+
         if(i!=0)
         {
+            // send halo to the left
             GPU_Partition &pprev = partitions[i-1];
             for(int j=0;j<icy::SimParams::nGridArrays;j++)
             {
-                double *halo_src1 = p.getHaloAddress(0, j);
-                double *halo_dst1 = pprev.getHaloReceiveAddress(1, j);
 //                err = cudaMemcpyPeerAsync(halo_dst1, pprev.Device, halo_src1, p.Device, haloSize, p.streamCompute);
-                err = cudaMemcpyAsync(halo_dst1, halo_src1, haloSize, cudaMemcpyDeviceToDevice, p.streamCompute);
-                if(err != cudaSuccess) throw std::runtime_error("p2g cudaMemcpyPeerAsync");
+//                err = cudaMemcpyAsync(halo_dst1, halo_src1, haloSize, cudaMemcpyDeviceToDevice, p.streamCompute);
             }
+            err = cudaMemcpy(pprev.halo_transfer_buffer[0], p.grid_array, count, cudaMemcpyDeviceToDevice);
+            if(err != cudaSuccess) throw std::runtime_error("p2g cudaMemcpyPeerAsync");
         }
-*/
+
         err = cudaEventRecord(p.event_grid_halo_sent, p.streamCompute);
         if(err != cudaSuccess) throw std::runtime_error("p2g");
     }
@@ -266,6 +279,7 @@ void GPU_Implementation5::g2p(bool recordPQ)
 void GPU_Implementation5::receive_points()
 {
     cudaError_t err;
+
     for(int i=0;i<partitions.size();i++)
     {
         GPU_Partition &p = partitions[i];
@@ -274,12 +288,7 @@ void GPU_Implementation5::receive_points()
 //        err = cudaEventSynchronize(p.event_utility_data_transferred);
 //        if(err != cudaSuccess) throw std::runtime_error("RP cudaEventSynchronize");
         err = cudaStreamSynchronize(p.streamCompute);
-        if(err != cudaSuccess)
-        {
-            const char *errorString = cudaGetErrorString(err);
-            spdlog::critical("receive_points partition {}; error {}", p.PartitionID, errorString);
-            throw std::runtime_error("RP cudaStreamSynchronize");
-        }
+        if(err != cudaSuccess) throw std::runtime_error("RP cudaStreamSynchronize");
 
         if(i!=(partitions.size()-1))
         {
@@ -293,8 +302,8 @@ void GPU_Implementation5::receive_points()
             {
                 spdlog::info("transferring {} r-points from P {} to P {}", right_buffer_count, p.PartitionID, pnxt.PartitionID);
 //                err = cudaMemcpyPeerAsync(dst_point_buffer, pnxt.Device, src_point_buffer, p.Device, count, p.streamCompute);
-                err = cudaMemcpyPeer(dst_point_buffer, pnxt.Device, src_point_buffer, p.Device, count);
-                if(err != cudaSuccess) throw std::runtime_error("RP cudaMemcpyPeerAsync");
+                err = cudaMemcpy(dst_point_buffer, src_point_buffer, count, cudaMemcpyDeviceToDevice);
+                if(err != cudaSuccess) throw std::runtime_error("RP copy buffer to the right");
             }
         }
         if(i!=0)
@@ -309,8 +318,8 @@ void GPU_Implementation5::receive_points()
             {
                 spdlog::info("transferring {} l-points from P {} to P {}", left_buffer_count, p.PartitionID, pprev.PartitionID);
 //                err = cudaMemcpyPeerAsync(dst_point_buffer, pprev.Device, src_point_buffer, p.Device, count, p.streamCompute);
-                err = cudaMemcpyPeer(dst_point_buffer, pprev.Device, src_point_buffer, p.Device, count);
-                if(err != cudaSuccess) throw std::runtime_error("RP cudaMemcpyPeerAsync");
+                err = cudaMemcpy(dst_point_buffer, src_point_buffer, count, cudaMemcpyDeviceToDevice);
+                if(err != cudaSuccess) throw std::runtime_error("RP copy buffer to the left");
             }
         }
         err = cudaEventRecord(p.event_pts_sent, p.streamCompute);

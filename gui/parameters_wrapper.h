@@ -127,6 +127,9 @@ class ParamsWrapper : public QObject
     Q_PROPERTY(double vc_transfer READ getVectorCapacityTransfer NOTIFY propertyChanged)
     double getVectorCapacityTransfer() {return prms->VectorCapacity_transfer;}
 
+    Q_PROPERTY(double haloSize READ getGridHaloSize NOTIFY propertyChanged)
+    double getGridHaloSize() {return prms->GridHaloSize;}
+
 
 public:
     ParamsWrapper(icy::SimParams *p)
