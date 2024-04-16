@@ -9,6 +9,8 @@
 #include <cuda_runtime.h>
 
 #include <functional>
+#include <vector>
+
 #include "parameters_sim.h"
 #include "point.h"
 #include "host_side_soa.h"
@@ -95,6 +97,11 @@ struct GPU_Partition
     void g2p(const bool recordPQ);
     void receive_points(int nFromLeft, int nFromRight);
 
+    // analysis
+    void reset_timings();
+    void record_timings();
+    void normalize_timings(int cycles);
+
     // helper functions
     double *getHaloAddress(int whichHalo, int whichGridArray);
     double *getHaloReceiveAddress(int whichHalo, int whichGridArray);
@@ -110,6 +117,7 @@ struct GPU_Partition
 
     size_t nPtsPitch, nGridPitch; // in number of elements(!), for coalesced access on the device
     int nPts_partition;    // actual number of points (including disabled)
+    int nPts_disabled;      // count the disabled points in this partition
     int GridX_partition;   // size of the portion of the grid for which this partition is "responsible"
     int GridX_offset;      // index where the grid starts in this partition
 
@@ -118,26 +126,28 @@ struct GPU_Partition
 
     // stream and events
     cudaStream_t streamCompute;
-    cudaEvent_t eventCycleStart, eventCycleStop;
-    cudaEvent_t event_grid_halo_sent;
-    cudaEvent_t event_pts_sent;
+
+    cudaEvent_t event_cycle_start, event_grid_halo_sent, event_halo_accepted, event_g2p_completed;
     cudaEvent_t event_utility_data_transferred;
+    cudaEvent_t event_pts_sent, event_pts_accepted;
 
     bool initialized = false;
     uint8_t error_code = 0;
-
 
     // device-side data
     int *device_side_utility_data;
     double *pts_array, *grid_array, *indenter_force_accumulator;
 
     // Four GPU-side vectors to keep track of points that escape and arrive
-//    int *vector_data_disabled_points;  // list of indices <nPts_partition of "disabled" points
     // points that fly to/from the adjacent partitions (left-out, right-out, left-in, right-in)
     double *point_transfer_buffer[4];
 
     // testing
     double *halo_transfer_buffer[2];
+
+    // frame analysis
+    float gridResetAndHalo, acceptHalo, gridUpdateAndG2P, transferUtilityData, stepTotal;
+    int max_pts_sent;
 };
 
 

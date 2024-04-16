@@ -562,37 +562,43 @@ GPU_Partition::GPU_Partition()
 {
     error_code = 0;
     nPts_partition = GridX_partition = GridX_offset = 0;
+    nPts_disabled = 0;
+
     host_side_indenter_force_accumulator = nullptr;
     host_side_utility_data = nullptr;
-
     pts_array = nullptr;
     grid_array = nullptr;
     indenter_force_accumulator = nullptr;
-//    vector_data_disabled_points = nullptr;
     for(int i=0;i<4;i++) point_transfer_buffer[i] = nullptr;
     device_side_utility_data = nullptr;
+    halo_transfer_buffer[0] = nullptr;
+    halo_transfer_buffer[1] = nullptr;
 }
 
 GPU_Partition::~GPU_Partition()
 {
     cudaSetDevice(Device);
-    cudaEventDestroy(eventCycleStart);
-    cudaEventDestroy(eventCycleStop);
+
+    cudaEventDestroy(event_cycle_start);
     cudaEventDestroy(event_grid_halo_sent);
+    cudaEventDestroy(event_halo_accepted);
+    cudaEventDestroy(event_g2p_completed);
     cudaEventDestroy(event_pts_sent);
     cudaEventDestroy(event_utility_data_transferred);
+    cudaEventDestroy(event_pts_accepted);
 
     cudaStreamDestroy(streamCompute);
 
     cudaFreeHost(host_side_indenter_force_accumulator);
     cudaFreeHost(host_side_utility_data);
 
-    cudaFree(indenter_force_accumulator);
-    cudaFree(pts_array);
-    for(int i=0;i<4;i++) cudaFree(point_transfer_buffer[i]);
-//    cudaFree(vector_data_disabled_points);
     cudaFree(grid_array);
+    cudaFree(pts_array);
+    cudaFree(indenter_force_accumulator);
+    for(int i=0;i<4;i++) cudaFree(point_transfer_buffer[i]);
     cudaFree(device_side_utility_data);
+    cudaFree(halo_transfer_buffer[0]);
+    cudaFree(halo_transfer_buffer[1]);
     spdlog::info("Destructor invoked; partition {} on device {}", PartitionID, Device);
 }
 
@@ -601,11 +607,15 @@ void GPU_Partition::initialize(int device, int partition)
     this->PartitionID = partition;
     this->Device = device;
     cudaSetDevice(Device);
-    cudaEventCreate(&eventCycleStart);
-    cudaEventCreate(&eventCycleStop);
+
+    cudaEventCreate(&event_cycle_start);
     cudaEventCreate(&event_grid_halo_sent);
+    cudaEventCreate(&event_halo_accepted);
+    cudaEventCreate(&event_g2p_completed);
     cudaEventCreate(&event_pts_sent);
     cudaEventCreate(&event_utility_data_transferred);
+    cudaEventCreate(&event_pts_accepted);
+
     cudaError_t err = cudaStreamCreate(&streamCompute);
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition initialization failure");
     initialized = true;
@@ -695,10 +705,14 @@ void GPU_Partition::update_constants()
 
 void GPU_Partition::reset_grid()
 {
+    cudaError_t err;
     cudaSetDevice(Device);
 
+    err = cudaEventRecord(event_cycle_start, streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("reset_grid");
+
     size_t gridArraySize = nGridPitch * icy::SimParams::nGridArrays * sizeof(double);
-    cudaError_t err = cudaMemsetAsync(grid_array, 0, gridArraySize, streamCompute);
+    err = cudaMemsetAsync(grid_array, 0, gridArraySize, streamCompute);
     if(err != cudaSuccess)
     {
         const char* errorString = cudaGetErrorString(err);
@@ -777,6 +791,8 @@ void GPU_Partition::g2p(const bool recordPQ)
 
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p kernel");
 
+    err = cudaEventRecord(event_g2p_completed, streamCompute);
+
     err = cudaMemcpyAsync(host_side_utility_data, device_side_utility_data, sizeof(int)*utility_data_size,
                           cudaMemcpyDeviceToHost, streamCompute);
  //   err = cudaMemcpy(host_side_utility_data, device_side_utility_data, sizeof(int)*utility_data_size, cudaMemcpyDeviceToHost);
@@ -848,8 +864,11 @@ void GPU_Partition::receive_halos()
     const int blocksPerGrid = (haloElementCount + tpb - 1) / tpb;
     partition_kernel_receive_halos<<<blocksPerGrid, tpb, 0, streamCompute>>>(haloElementCount, GridX_partition,
                                                                              nGridPitch, grid_array,
-halo_transfer_buffer[0], halo_transfer_buffer[1]);
+                                                    halo_transfer_buffer[0], halo_transfer_buffer[1]);
+
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("receive_halos kernel execution");
+    cudaError_t err = cudaEventRecord(event_halo_accepted, streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("receive_halos event");
 }
 
 
@@ -882,6 +901,8 @@ void GPU_Partition::receive_points(int nFromLeft, int nFromRight)
         if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("receive_nodes kernel execution right");
         nPts_partition += n;
     }
+    cudaError_t err = cudaEventRecord(event_pts_accepted);
+    if(err != cudaSuccess) throw std::runtime_error("receive_points event record");
 }
 
 
@@ -902,5 +923,56 @@ __global__ void partition_kernel_receive_points(const int count_transfer,
     {
         buffer_pts[idx_in_soa + i*pitch_pts] = transfer_buffer[i + icy::SimParams::nPtsArrays*idx];
     }
+}
+
+
+void GPU_Partition::record_timings()
+{
+    float _gridResetAndHalo, _acceptHalo, _gridUpdateAndG2P, _transferUtilityData, _total;
+    cudaSetDevice(Device);
+    cudaError_t err;
+    err = cudaEventSynchronize(event_pts_accepted);
+
+    err = cudaEventElapsedTime(&_gridResetAndHalo, event_cycle_start, event_grid_halo_sent);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings");
+    err = cudaEventElapsedTime(&_acceptHalo, event_grid_halo_sent, event_halo_accepted);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings");
+    err = cudaEventElapsedTime(&_gridUpdateAndG2P, event_halo_accepted, event_g2p_completed);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings");
+    err = cudaEventElapsedTime(&_transferUtilityData, event_g2p_completed, event_utility_data_transferred);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings");
+    err = cudaEventElapsedTime(&_total, event_cycle_start, event_pts_accepted);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings pts accepted");
+
+    gridResetAndHalo += _gridResetAndHalo;
+    acceptHalo += _acceptHalo;
+    gridUpdateAndG2P += _gridUpdateAndG2P;
+    transferUtilityData += _transferUtilityData;
+    stepTotal += _total;
+
+    int left = getLeftBufferCount();
+    int right = getRightBufferCount();
+
+    int max_lr = max(left, right);
+    max_pts_sent = max(max_pts_sent, max_lr);
+}
+
+void GPU_Partition::reset_timings()
+{
+    gridResetAndHalo = 0;
+    acceptHalo = 0;
+    gridUpdateAndG2P = 0;
+    transferUtilityData = 0;
+    stepTotal = 0;
+    max_pts_sent = 0;
+}
+
+void GPU_Partition::normalize_timings(int cycles)
+{
+    gridResetAndHalo = gridResetAndHalo*1000/cycles;
+    acceptHalo = acceptHalo*1000/cycles;
+    gridUpdateAndG2P = gridUpdateAndG2P*1000/cycles;
+    transferUtilityData = transferUtilityData*1000/cycles;
+    stepTotal = stepTotal*1000/cycles;
 }
 

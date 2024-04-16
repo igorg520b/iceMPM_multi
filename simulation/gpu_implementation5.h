@@ -46,7 +46,6 @@ public:
     void g2p(bool recordPQ);
     void receive_points();
 
-
     // the size of this buffer (in the number of points) is stored in PointsHostBufferCapacity
 
 private:

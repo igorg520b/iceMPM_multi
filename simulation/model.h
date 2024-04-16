@@ -11,6 +11,7 @@
 #include <mutex>
 #include <iostream>
 #include <string>
+#include <fstream>
 
 #include "parameters_sim.h"
 #include "point.h"
@@ -27,6 +28,7 @@ class icy::Model
 {
 public:
     Model();
+    ~Model();
     void Reset();
 
     void Prepare();        // invoked once, at simulation start
@@ -42,12 +44,7 @@ public:
     std::mutex processing_current_cycle_data; // locked until the current cycle results' are copied to host and processed
 
 private:
-    void ResetGrid();
-    void P2G();
-    void UpdateNodes();
-    void G2P();
-    void UpdateIndenterPosition(double simulationtime);
-
+    std::ofstream logCycleStats;
     bool abortRequested;
 };
 
