@@ -53,7 +53,7 @@ int main(int argc, char** argv)
         snapshot_thread = std::thread([&](){
             int snapshot_number = model.prms.AnimationFrameNumber();
             if(request_terminate) { model.UnlockCycleMutex(); std::cout << "snapshot aborted\n"; return; }
-            spdlog::info("cycle callback {}; compute_time_per_cycle {}", snapshot_number, model.compute_time_per_cycle);
+            spdlog::info("cycle callback {}; ", snapshot_number);
             //snapshot.SaveSnapshot(snapshot_directory);
             model.UnlockCycleMutex();
             spdlog::info("callback {} done", snapshot_number);

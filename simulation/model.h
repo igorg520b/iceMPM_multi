@@ -39,7 +39,7 @@ public:
 
     icy::SimParams prms;
     GPU_Implementation5 gpu;
-    float compute_time_per_cycle;
+    int max_points_transferred, max_pt_deviation;
 
     std::mutex processing_current_cycle_data; // locked until the current cycle results' are copied to host and processed
 

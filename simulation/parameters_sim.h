@@ -79,6 +79,7 @@ public:
 
     // computed parameters/properties
     double dt_vol_Dpinv, dt_Gravity, vmax, vmax_squared;
+    int gbOffset;
 
 
     void Reset();

@@ -43,8 +43,9 @@ public:
     void p2g();
     void receive_halos();
     void update_nodes();
-    void g2p(bool recordPQ);
+    void g2p(const bool recordPQ, const bool enablePointTransfer);
     void receive_points();
+    void record_timings(const bool enablePointTransfer);
 
     // the size of this buffer (in the number of points) is stored in PointsHostBufferCapacity
 

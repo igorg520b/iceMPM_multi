@@ -20,8 +20,6 @@ icy::SimParams *GPU_Partition::prms;
 
 
 
-
-
 __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, const int pitch_grid,
                                      const int count_pts, const int pitch_pts,
                                      const double *buffer_pts, double *buffer_grid)
@@ -43,6 +41,8 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
     const int &gridY = gprms.GridY;
     const int &gridXTotal = gprms.GridXTotal;
     const int &halo = gprms.GridHaloSize;
+
+    const int &offset = gprms.gbOffset;
 
     // pull point data from SOA
     Vector2d pos, velocity;
@@ -89,13 +89,45 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
             if(i2>=(gridX+halo)) gpu_error_indicator = 72;
             if(j2>=gridY) gpu_error_indicator = 73;
 
-            int offset = 0; // halo offset
-            int idx_gridnode = j2 + (i2+offset)*gridY;
+            int idx_gridnode = j2 + i2*gridY;
             // Udpate mass, velocity and force
-            atomicAdd(&buffer_grid[0*pitch_grid + idx_gridnode], incM);
-            atomicAdd(&buffer_grid[1*pitch_grid + idx_gridnode], incV[0]);
-            atomicAdd(&buffer_grid[2*pitch_grid + idx_gridnode], incV[1]);
+            atomicAdd(&buffer_grid[0*pitch_grid + idx_gridnode + offset], incM);
+            atomicAdd(&buffer_grid[1*pitch_grid + idx_gridnode + offset], incV[0]);
+            atomicAdd(&buffer_grid[2*pitch_grid + idx_gridnode + offset], incV[1]);
         }
+}
+
+
+__global__ void partition_kernel_receive_halos(const int haloElementCount,
+                                               const int gridX, const int gridX_offset,
+                                               const int pitch_grid, double *buffer_grid,
+                                               const double *halo0, const double *halo1)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx >= haloElementCount) return;
+
+    const int &halo = gprms.GridHaloSize;
+    const int &gridY = gprms.GridY;
+    const int offset = gprms.gbOffset;
+
+    for(int i=0; i<icy::SimParams::nGridArrays; i++)
+    {
+        buffer_grid[idx + i*pitch_grid + gridY*gridX_offset] += halo0[idx + i*pitch_grid];
+        buffer_grid[idx + i*pitch_grid + gridY*(gridX_offset+gridX)] += halo1[idx + i*pitch_grid];
+    }
+}
+
+void GPU_Partition::receive_halos()
+{
+    cudaSetDevice(Device);
+    const int haloElementCount = prms->GridHaloSize*prms->GridY*2;
+    const int tpb = prms->tpb_Upd;   // threads per block
+    const int blocksPerGrid = (haloElementCount + tpb - 1) / tpb;
+    partition_kernel_receive_halos<<<blocksPerGrid, tpb, 0, streamCompute>>>(haloElementCount, GridX_partition, GridX_offset,
+                                                                             nGridPitch, grid_array,
+                                                                             halo_transfer_buffer[0], halo_transfer_buffer[1]);
+
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("receive_halos kernel execution");
 }
 
 
@@ -108,9 +140,10 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
 
     const int &halo = gprms.GridHaloSize;
     const int &gridY = gprms.GridY;
-//    const int offset = halo*gridY;
+//    const int offset = gprms.gbOffset + gridX_offset*gridY;
+    const int offset = gridX_offset*gridY;
 
-    double mass = buffer_grid[idx];
+    double mass = buffer_grid[idx + offset];
     if(mass == 0) return;
 
     const double &gravity = gprms.Gravity;
@@ -124,8 +157,10 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
 
     const Vector2d vco(ind_velocity,0);  // velocity of the collision object (indenter)
 
-    Vector2i gi(idx/gridY, idx%gridY);   // integer x-y index of the grid node
-    Vector2d velocity(buffer_grid[1*pitch_grid + idx], buffer_grid[2*pitch_grid + idx]);
+    Vector2i gi(idx/gridY+gridX_offset-halo, idx%gridY);   // integer x-y index of the grid node
+    double vx = buffer_grid[1*pitch_grid + idx + offset];
+    double vy = buffer_grid[2*pitch_grid + idx + offset];
+    Vector2d velocity(vx, vy);
     velocity /= mass;
     velocity[1] -= gprms.dt_Gravity;
     if(velocity.squaredNorm() > vmax_squared) velocity = velocity.normalized()*vmax;
@@ -163,20 +198,16 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
     if(gi.x() <= 2 && velocity[0]<0) velocity[0] = 0;
     else if(gi.x() >= gridXTotal-3 && velocity[0]>0) velocity[0] = 0;
 
-    // side boundary conditions
-    //    int blocksGridX = gprms.BlockLength*gprms.cellsize_inv+5-2;
-    //    int blocksGridY = gprms.BlockHeight/2*gprms.cellsize_inv+2;
-    //    if(idx_x >= blocksGridX && idx_x <= blocksGridX + 2 && idx_y < blocksGridY) velocity.setZero();
-    //    if(idx_x <= 7 && idx_x > 4 && idx_y < blocksGridY) velocity.setZero();
+    // side boundary conditions would go here
 
     // write the updated grid velocity back to memory
-    buffer_grid[1*pitch_grid + idx] = velocity[0];
-    buffer_grid[2*pitch_grid + idx] = velocity[1];
+    buffer_grid[1*pitch_grid + idx + offset] = velocity[0];
+    buffer_grid[2*pitch_grid + idx + offset] = velocity[1];
 }
 
 
 
-__global__ void partition_kernel_g2p(const bool recordPQ,
+__global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePointTransfer,
                                      const int gridX, const int gridX_offset, const int pitch_grid,
                                      const int count_pts, const int pitch_pts,
                                      double *buffer_pts, const double *buffer_grid,
@@ -195,12 +226,11 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
 
     const int &halo = gprms.GridHaloSize;
     const double &h_inv = gprms.cellsize_inv;
-    //    const double &h = gprms.cellsize;
     const double &dt = gprms.InitialTimeStep;
     const int &gridY = gprms.GridY;
     const double &mu = gprms.mu;
     const double &kappa = gprms.kappa;
-    const int offset_gb = 0;//halo*gridY*5;
+    const int &offset = gprms.gbOffset;
 
     // pull point data from SOA
     for(int i=0; i<icy::SimParams::dim; i++)
@@ -213,7 +243,6 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
     }
     p.Jp_inv = buffer_pts[pt_idx + pitch_pts*icy::SimParams::idx_Jp_inv];
     p.grain = (short)p.utility_data;
-    //p.crushed = (p.utility_data >> 16) & 0x1;
 
     // coords of base grid node for point
     Eigen::Vector2i base_coord_i = (p.pos*h_inv - Vector2d::Constant(0.5)).cast<int>();
@@ -240,8 +269,8 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
             int idx_gridnode = j2 + i2*gridY;
 
             Vector2d node_velocity;
-            node_velocity[0] = buffer_grid[1*pitch_grid + idx_gridnode + offset_gb];
-            node_velocity[1] = buffer_grid[2*pitch_grid + idx_gridnode + offset_gb];
+            node_velocity[0] = buffer_grid[1*pitch_grid + idx_gridnode + offset];
+            node_velocity[1] = buffer_grid[2*pitch_grid + idx_gridnode + offset];
             p.velocity += weight * node_velocity;
             p.Bp += (4.*h_inv)*weight *(node_velocity*dpos.transpose());
         }
@@ -278,22 +307,49 @@ __global__ void partition_kernel_g2p(const bool recordPQ,
     }
 
     // check if a points needs to be transferred to adjacent partition
-    base_coord_i = (p.pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // update the base node index
-    if(base_coord_i.x() < gridX_offset-halo)
+//    base_coord_i = (p.pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // update the base node index
+    int base_coord_x = (int)(p.pos.x()*h_inv - 0.5);
+    constexpr int fly_threshold = 4;
+    const int keep_track_threshold = halo/2;
+    if((base_coord_x - gridX_offset) < -keep_track_threshold)
     {
-        // point transfers to the left
-        int fly_idx = atomicAdd(&utility_data[GPU_Partition::idx_transfer_to_left], 1);  // reserve buffer index
-        if(fly_idx >= VectorCapacity_transfer) { gpu_error_indicator = 20; return; }
-        PreparePointForTransfer(pt_idx, fly_idx, point_buffer_left, pitch_pts, buffer_pts);
-        ptr[pt_idx] = (p.utility_data | status_disabled); // includes crushed/disable status and grain number
+        int deviation = -(base_coord_x - gridX_offset);
+        atomicMax(&utility_data[GPU_Partition::idx_pts_max_extent], deviation);
     }
-    else if(base_coord_i.x() > (gridX_offset+gridX-3+halo))
+    else if(base_coord_x - (gridX_offset+gridX-3) > keep_track_threshold)
     {
-        // point transfers to the right
-        int fly_idx = atomicAdd(&utility_data[GPU_Partition::idx_transfer_to_right], 1);  // reserve buffer index
-        if(fly_idx >= VectorCapacity_transfer) { gpu_error_indicator = 21; return; }
-        PreparePointForTransfer(pt_idx, fly_idx, point_buffer_right, pitch_pts, buffer_pts);
-        ptr[pt_idx] = (p.utility_data | status_disabled); // includes crushed/disable status and grain number
+        int deviation = base_coord_x - (gridX_offset+gridX-3);
+        atomicMax(&utility_data[GPU_Partition::idx_pts_max_extent], deviation);
+    }
+
+    // only tranfer the points if this feature is enabled this particular step
+    if(enablePointTransfer)
+    {
+        if((base_coord_x - gridX_offset) < -fly_threshold)
+        {
+            // point transfers to the left
+            int fly_idx = atomicAdd(&utility_data[GPU_Partition::idx_transfer_to_left], 1);  // reserve buffer index
+            if(fly_idx < VectorCapacity_transfer)
+            {
+                // only perform this procedure if there is space in the buffer
+                PreparePointForTransfer(pt_idx, fly_idx, point_buffer_left, pitch_pts, buffer_pts);
+                ptr[pt_idx] = (p.utility_data | status_disabled); // includes crushed/disable status and grain number
+            }
+            else
+                utility_data[GPU_Partition::idx_transfer_to_left] = VectorCapacity_transfer;
+        }
+        else if(base_coord_x - (gridX_offset+gridX-3) > fly_threshold)
+        {
+            // point transfers to the right
+            int fly_idx = atomicAdd(&utility_data[GPU_Partition::idx_transfer_to_right], 1);  // reserve buffer index
+            if(fly_idx < VectorCapacity_transfer)
+            {
+                PreparePointForTransfer(pt_idx, fly_idx, point_buffer_right, pitch_pts, buffer_pts);
+                ptr[pt_idx] = (p.utility_data | status_disabled); // includes crushed/disable status and grain number
+            }
+            else
+                utility_data[GPU_Partition::idx_transfer_to_right] = VectorCapacity_transfer;
+        }
     }
 }
 
@@ -307,6 +363,23 @@ __device__ void PreparePointForTransfer(const int pt_idx, const int index_in_tra
 }
 
 
+__global__ void partition_kernel_receive_points(const int count_transfer,
+                                                const int count_pts, const int pitch_pts,
+                                                double *buffer_pts,
+                                                double *transfer_buffer)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx >= count_transfer) return;
+
+    int idx_in_soa = count_pts + idx;
+    if(idx_in_soa >= pitch_pts) { gpu_error_indicator = 5; return; } // no space for incoming points
+
+    // copy point data
+    for(int i=0;i<icy::SimParams::nPtsArrays;i++)
+    {
+        buffer_pts[idx_in_soa + i*pitch_pts] = transfer_buffer[i + icy::SimParams::nPtsArrays*idx];
+    }
+}
 
 
 
@@ -579,13 +652,14 @@ GPU_Partition::~GPU_Partition()
 {
     cudaSetDevice(Device);
 
-    cudaEventDestroy(event_cycle_start);
-    cudaEventDestroy(event_grid_halo_sent);
-    cudaEventDestroy(event_halo_accepted);
-    cudaEventDestroy(event_g2p_completed);
-    cudaEventDestroy(event_pts_sent);
-    cudaEventDestroy(event_utility_data_transferred);
-    cudaEventDestroy(event_pts_accepted);
+    cudaEventDestroy(event_10_cycle_start);
+    cudaEventDestroy(event_20_grid_halo_sent);
+    cudaEventDestroy(event_30_halo_accepted);
+    cudaEventDestroy(event_40_grid_updated);
+    cudaEventDestroy(event_50_g2p_completed);
+    cudaEventDestroy(event_60_utility_data_transferred);
+    cudaEventDestroy(event_70_pts_sent);
+    cudaEventDestroy(event_80_pts_accepted);
 
     cudaStreamDestroy(streamCompute);
 
@@ -597,8 +671,6 @@ GPU_Partition::~GPU_Partition()
     cudaFree(indenter_force_accumulator);
     for(int i=0;i<4;i++) cudaFree(point_transfer_buffer[i]);
     cudaFree(device_side_utility_data);
-    cudaFree(halo_transfer_buffer[0]);
-    cudaFree(halo_transfer_buffer[1]);
     spdlog::info("Destructor invoked; partition {} on device {}", PartitionID, Device);
 }
 
@@ -608,13 +680,14 @@ void GPU_Partition::initialize(int device, int partition)
     this->Device = device;
     cudaSetDevice(Device);
 
-    cudaEventCreate(&event_cycle_start);
-    cudaEventCreate(&event_grid_halo_sent);
-    cudaEventCreate(&event_halo_accepted);
-    cudaEventCreate(&event_g2p_completed);
-    cudaEventCreate(&event_pts_sent);
-    cudaEventCreate(&event_utility_data_transferred);
-    cudaEventCreate(&event_pts_accepted);
+    cudaEventCreate(&event_10_cycle_start);
+    cudaEventCreate(&event_20_grid_halo_sent);
+    cudaEventCreate(&event_30_halo_accepted);
+    cudaEventCreate(&event_40_grid_updated);
+    cudaEventCreate(&event_50_g2p_completed);
+    cudaEventCreate(&event_60_utility_data_transferred);
+    cudaEventCreate(&event_70_pts_sent);
+    cudaEventCreate(&event_80_pts_accepted);
 
     cudaError_t err = cudaStreamCreate(&streamCompute);
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition initialization failure");
@@ -632,21 +705,17 @@ void GPU_Partition::allocate(int n_points_capacity, int grid_x_capacity)
     cudaSetDevice(Device);
 
     // grid
-//    size_t grid_size_local_requested = prms->GridY*(grid_x_capacity + 6*prms->GridHaloSize) * sizeof(double);
-//    err = cudaMallocPitch (&grid_array, &nGridPitch, grid_size_local_requested, icy::SimParams::nGridArrays);
-//    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate grid array");
-//    nGridPitch /= sizeof(double); // assume that this divides without remainder
-
-    // grid
-    // todo: remove after testing
-    size_t grid_size_local_requested = prms->GridY * prms->GridXTotal * sizeof(double);
+    // TODO: no need to allocate full grid
+    const int &halo = prms->GridHaloSize;
+    const int &gy = prms->GridY;
+    const int &gx = prms->GridXTotal; // todo: replace with grid_x_capacity
+    size_t grid_size_local_requested = sizeof(double) * gy * (3*gx + 6*halo);
     cudaMallocPitch (&grid_array, &nGridPitch, grid_size_local_requested, icy::SimParams::nGridArrays);
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate grid array");
-    cudaMallocPitch (&halo_transfer_buffer[0], &nGridPitch, grid_size_local_requested, icy::SimParams::nGridArrays);
-    cudaMallocPitch (&halo_transfer_buffer[1], &nGridPitch, grid_size_local_requested, icy::SimParams::nGridArrays);
     nGridPitch /= sizeof(double); // assume that this divides without remainder
 
-
+    halo_transfer_buffer[0] = grid_array + gy*(gx+2*halo);
+    halo_transfer_buffer[1] = grid_array + gy*(2*gx+4*halo);
 
     // host-side indenter accumulator
     err = cudaMallocHost(&host_side_indenter_force_accumulator, prms->IndenterArraySize());
@@ -703,24 +772,6 @@ void GPU_Partition::update_constants()
 }
 
 
-void GPU_Partition::reset_grid()
-{
-    cudaError_t err;
-    cudaSetDevice(Device);
-
-    err = cudaEventRecord(event_cycle_start, streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("reset_grid");
-
-    size_t gridArraySize = nGridPitch * icy::SimParams::nGridArrays * sizeof(double);
-    err = cudaMemsetAsync(grid_array, 0, gridArraySize, streamCompute);
-    if(err != cudaSuccess)
-    {
-        const char* errorString = cudaGetErrorString(err);
-        spdlog::critical("P {}; cuda_reset_grid error: {}",PartitionID, errorString);
-        spdlog::critical("nGridPitch {}; GridY {}; gridArraySize {}", nGridPitch, prms->GridY, gridArraySize);
-        throw std::runtime_error("cuda_reset_grid error");
-    }
-}
 
 
 void GPU_Partition::reset_indenter_force_accumulator()
@@ -732,6 +783,14 @@ void GPU_Partition::reset_indenter_force_accumulator()
 
 
 // ============================== main simulation steps
+void GPU_Partition::reset_grid()
+{
+    cudaError_t err;
+    cudaSetDevice(Device);
+    size_t gridArraySize = nGridPitch * icy::SimParams::nGridArrays * sizeof(double);
+    err = cudaMemsetAsync(grid_array, 0, gridArraySize, streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("cuda_reset_grid error");
+}
 
 void GPU_Partition::p2g()
 {
@@ -750,63 +809,17 @@ void GPU_Partition::p2g()
 void GPU_Partition::update_nodes()
 {
     cudaSetDevice(Device);
-//    const int nGridNodes = prms->GridY * GridX_partition;
-    const int nGridNodes = prms->GridY * prms->GridXTotal;
-    const int gridxoffset = 0; // change to gridx_offset
+    const int nGridNodes = prms->GridY * (GridX_partition + 2*prms->GridHaloSize);
 
     int tpb = prms->tpb_Upd;
     int nBlocks = (nGridNodes + tpb - 1) / tpb;
     Eigen::Vector2d ind_center(prms->indenter_x, prms->indenter_y);
 
-    partition_kernel_update_nodes<<<nBlocks, tpb, 0, streamCompute>>>(ind_center, nGridNodes, gridxoffset,
+    partition_kernel_update_nodes<<<nBlocks, tpb, 0, streamCompute>>>(ind_center, nGridNodes, GridX_offset,
                                                                       nGridPitch, grid_array, indenter_force_accumulator);
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("update_nodes");
 }
 
-void GPU_Partition::g2p(const bool recordPQ)
-{
-    cudaError_t err;
-    err = cudaSetDevice(Device);
-    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p cudaSetDevice");
-
-    // clear the counters for (0) left transfer, (1) right transfer, (2) added to the end of the list
-    err = cudaMemsetAsync(device_side_utility_data, 0, 3*sizeof(int), streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("g2p cudaMemset");
-
-    const int &n = nPts_partition;
-    const int &tpb = prms->tpb_G2P;
-    const int nBlocks = (n + tpb - 1) / tpb;
-
-    int gridxoffset = 0; // todo: change to GridX_offset
-    int gridxpartition = prms->GridXTotal; // todo change to GridX_partition;
-
-    partition_kernel_g2p<<<nBlocks, tpb, 0, streamCompute>>>(recordPQ,
-                                         GridX_partition, GridX_offset, nGridPitch,
-                                         nPts_partition, nPtsPitch,
-                                                             pts_array, grid_array,
-                                                             device_side_utility_data,
-                                                             prms->VectorCapacity_transfer,
-                                                             point_transfer_buffer[0],
-                                                             point_transfer_buffer[1]);
-
-    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p kernel");
-
-    err = cudaEventRecord(event_g2p_completed, streamCompute);
-
-    err = cudaMemcpyAsync(host_side_utility_data, device_side_utility_data, sizeof(int)*utility_data_size,
-                          cudaMemcpyDeviceToHost, streamCompute);
- //   err = cudaMemcpy(host_side_utility_data, device_side_utility_data, sizeof(int)*utility_data_size, cudaMemcpyDeviceToHost);
-    if(err != cudaSuccess)
-    {
-        const char* errorString = cudaGetErrorString(err);
-        spdlog::critical("error {}; host {}; device {}",errorString, (void*)host_side_utility_data,
-                         (void*)device_side_utility_data);
-        throw std::runtime_error("GPU_Partition::g2p cudaMemcpy");
-    }
-
-    err = cudaEventRecord(event_utility_data_transferred, streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition::g2p cudaEventRecord");
-}
 
 
 
@@ -834,46 +847,52 @@ double* GPU_Partition::getHaloReceiveAddress(int whichHalo, int whichGridArray)
 }
 
 
-__global__ void partition_kernel_receive_halos(const int haloElementCount,
-                                               const int gridX, const int pitch_grid, double *buffer_grid,
-                                               const double *halo0, const double *halo1)
+
+
+
+// =====================================
+
+void GPU_Partition::g2p(const bool recordPQ, const bool enablePointTransfer)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if(idx >= haloElementCount) return;
+    cudaError_t err;
+    err = cudaSetDevice(Device);
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p cudaSetDevice");
 
-    const int &halo = gprms.GridHaloSize;
-    const int &gridY = gprms.GridY;
-    buffer_grid[idx] += halo0[idx];
-    buffer_grid[idx] += halo1[idx];
+    // clear the counters for (0) left transfer, (1) right transfer, (2) added to the end of the list
+    err = cudaMemsetAsync(device_side_utility_data, 0, utility_data_size*sizeof(int), streamCompute);
+    if(err != cudaSuccess) throw std::runtime_error("g2p cudaMemset");
 
-    for(int i=0; i<icy::SimParams::nGridArrays; i++)
+    const int &n = nPts_partition;
+    const int &tpb = prms->tpb_G2P;
+    const int nBlocks = (n + tpb - 1) / tpb;
+
+    int gridxoffset = 0; // todo: change to GridX_offset
+    int gridxpartition = prms->GridXTotal; // todo change to GridX_partition;
+
+    partition_kernel_g2p<<<nBlocks, tpb, 0, streamCompute>>>(recordPQ, enablePointTransfer,
+                                                             GridX_partition, GridX_offset, nGridPitch,
+                                                             nPts_partition, nPtsPitch,
+                                                             pts_array, grid_array,
+                                                             device_side_utility_data,
+                                                             prms->VectorCapacity_transfer,
+                                                             point_transfer_buffer[0],
+                                                             point_transfer_buffer[1]);
+
+    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("g2p kernel");
+
+    err = cudaEventRecord(event_50_g2p_completed, streamCompute);
+
+    err = cudaMemcpyAsync(host_side_utility_data, device_side_utility_data, sizeof(int)*utility_data_size,
+                          cudaMemcpyDeviceToHost, streamCompute);
+    if(err != cudaSuccess)
     {
-        // left halo
-//        buffer_grid[idx + i*pitch_grid + 4*halo*gridY] += buffer_grid[idx + i*pitch_grid + 0*halo*gridY];
-        // right halo
-//        buffer_grid[idx + i*pitch_grid + (4*halo + gridX)*gridY] += buffer_grid[idx + i*pitch_grid + 2*halo*gridY];
+        const char* errorString = cudaGetErrorString(err);
+        spdlog::critical("error {}; host {}; device {}",errorString, (void*)host_side_utility_data,
+                         (void*)device_side_utility_data);
+        throw std::runtime_error("GPU_Partition::g2p cudaMemcpy");
     }
 }
 
-void GPU_Partition::receive_halos()
-{
-    cudaSetDevice(Device);
-//    const int haloElementCount = prms->GridHaloSize*prms->GridY*2;
-    const int haloElementCount = nGridPitch*icy::SimParams::nGridArrays;
-    const int tpb = 512;   // threads per block
-    const int blocksPerGrid = (haloElementCount + tpb - 1) / tpb;
-    partition_kernel_receive_halos<<<blocksPerGrid, tpb, 0, streamCompute>>>(haloElementCount, GridX_partition,
-                                                                             nGridPitch, grid_array,
-                                                    halo_transfer_buffer[0], halo_transfer_buffer[1]);
-
-    if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("receive_halos kernel execution");
-    cudaError_t err = cudaEventRecord(event_halo_accepted, streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("receive_halos event");
-}
-
-
-
-// ===================================== receive points
 
 void GPU_Partition::receive_points(int nFromLeft, int nFromRight)
 {
@@ -901,78 +920,93 @@ void GPU_Partition::receive_points(int nFromLeft, int nFromRight)
         if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("receive_nodes kernel execution right");
         nPts_partition += n;
     }
-    cudaError_t err = cudaEventRecord(event_pts_accepted);
-    if(err != cudaSuccess) throw std::runtime_error("receive_points event record");
 }
 
 
 
-__global__ void partition_kernel_receive_points(const int count_transfer,
-                                                const int count_pts, const int pitch_pts,
-                                                double *buffer_pts,
-                                                double *transfer_buffer)
+
+
+void GPU_Partition::record_timings(const bool enablePointTransfer)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if(idx >= count_transfer) return;
-
-    int idx_in_soa = count_pts + idx;
-    if(idx_in_soa >= pitch_pts) { gpu_error_indicator = 5; return; } // no space for incoming points
-
-    // copy point data
-    for(int i=0;i<icy::SimParams::nPtsArrays;i++)
-    {
-        buffer_pts[idx_in_soa + i*pitch_pts] = transfer_buffer[i + icy::SimParams::nPtsArrays*idx];
-    }
-}
-
-
-void GPU_Partition::record_timings()
-{
-    float _gridResetAndHalo, _acceptHalo, _gridUpdateAndG2P, _transferUtilityData, _total;
+    float _gridResetAndHalo, _acceptHalo, _G2P, _transferUtilityData, _total, _ptsSent, _ptsAccepted;
+    float _updateGrid;
     cudaSetDevice(Device);
     cudaError_t err;
-    err = cudaEventSynchronize(event_pts_accepted);
+    err = cudaStreamSynchronize(streamCompute);
 
-    err = cudaEventElapsedTime(&_gridResetAndHalo, event_cycle_start, event_grid_halo_sent);
-    if(err != cudaSuccess) throw std::runtime_error("record_timings");
-    err = cudaEventElapsedTime(&_acceptHalo, event_grid_halo_sent, event_halo_accepted);
-    if(err != cudaSuccess) throw std::runtime_error("record_timings");
-    err = cudaEventElapsedTime(&_gridUpdateAndG2P, event_halo_accepted, event_g2p_completed);
-    if(err != cudaSuccess) throw std::runtime_error("record_timings");
-    err = cudaEventElapsedTime(&_transferUtilityData, event_g2p_completed, event_utility_data_transferred);
-    if(err != cudaSuccess) throw std::runtime_error("record_timings");
-    err = cudaEventElapsedTime(&_total, event_cycle_start, event_pts_accepted);
-    if(err != cudaSuccess) throw std::runtime_error("record_timings pts accepted");
+    err = cudaEventElapsedTime(&_gridResetAndHalo, event_10_cycle_start, event_20_grid_halo_sent);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings 1");
+    err = cudaEventElapsedTime(&_acceptHalo, event_20_grid_halo_sent, event_30_halo_accepted);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings 2");
+    err = cudaEventElapsedTime(&_updateGrid, event_30_halo_accepted, event_40_grid_updated);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings 3");
+    err = cudaEventElapsedTime(&_G2P, event_40_grid_updated, event_50_g2p_completed);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings 4");
+    err = cudaEventElapsedTime(&_transferUtilityData, event_50_g2p_completed, event_60_utility_data_transferred);
+    if(err != cudaSuccess) throw std::runtime_error("record_timings 5");
 
-    gridResetAndHalo += _gridResetAndHalo;
-    acceptHalo += _acceptHalo;
-    gridUpdateAndG2P += _gridUpdateAndG2P;
-    transferUtilityData += _transferUtilityData;
-    stepTotal += _total;
+    if(enablePointTransfer)
+    {
+        err = cudaEventElapsedTime(&_ptsSent, event_60_utility_data_transferred, event_70_pts_sent);
+        if(err != cudaSuccess) throw std::runtime_error("record_timings 6");
+        err = cudaEventElapsedTime(&_ptsAccepted, event_70_pts_sent, event_80_pts_accepted);
+        if(err != cudaSuccess) throw std::runtime_error("record_timings 7");
+
+        err = cudaEventElapsedTime(&_total, event_10_cycle_start, event_80_pts_accepted);
+        if(err != cudaSuccess) throw std::runtime_error("record_timings pts accepted");
+    }
+    else
+    {
+        _ptsSent = 0;
+        _ptsAccepted = 0;
+
+        err = cudaEventElapsedTime(&_total, event_10_cycle_start, event_60_utility_data_transferred);
+        if(err != cudaSuccess) throw std::runtime_error("record_timings pts accepted");
+    }
+
+    timing_10_P2GAndHalo += _gridResetAndHalo;
+    timing_20_acceptHalo += _acceptHalo;
+    timing_30_updateGrid += _updateGrid;
+    timing_40_G2P += _G2P;
+    timing_50_transferUtilityData += _transferUtilityData;
+    timing_60_ptsSent += _ptsSent;
+    timing_70_ptsAccepted += _ptsAccepted;
+
+    timing_stepTotal += _total;
 
     int left = getLeftBufferCount();
     int right = getRightBufferCount();
 
     int max_lr = max(left, right);
     max_pts_sent = max(max_pts_sent, max_lr);
+
+    max_pt_deviation = max(max_pt_deviation, getMaxDeviationValue());
 }
 
 void GPU_Partition::reset_timings()
 {
-    gridResetAndHalo = 0;
-    acceptHalo = 0;
-    gridUpdateAndG2P = 0;
-    transferUtilityData = 0;
-    stepTotal = 0;
     max_pts_sent = 0;
+    max_pt_deviation = 0;
+    timing_10_P2GAndHalo = 0;
+    timing_20_acceptHalo = 0;
+    timing_30_updateGrid = 0;
+    timing_40_G2P = 0;
+    timing_50_transferUtilityData = 0;
+    timing_60_ptsSent = 0;
+    timing_70_ptsAccepted = 0;
+    timing_stepTotal = 0;
 }
 
 void GPU_Partition::normalize_timings(int cycles)
 {
-    gridResetAndHalo = gridResetAndHalo*1000/cycles;
-    acceptHalo = acceptHalo*1000/cycles;
-    gridUpdateAndG2P = gridUpdateAndG2P*1000/cycles;
-    transferUtilityData = transferUtilityData*1000/cycles;
-    stepTotal = stepTotal*1000/cycles;
+    float coeff = (float)1000/(float)cycles;
+    timing_10_P2GAndHalo *= coeff;
+    timing_20_acceptHalo *= coeff;
+    timing_30_updateGrid *= coeff;
+    timing_40_G2P *= coeff;
+    timing_50_transferUtilityData *= coeff;
+    timing_60_ptsSent *= coeff;
+    timing_70_ptsAccepted *= coeff;
+    timing_stepTotal *= coeff;
 }
 

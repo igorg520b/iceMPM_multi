@@ -23,7 +23,7 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
 
 
 // receive grid data from adjacent partitions
-__global__ void partition_kernel_receive_halos(const int haloElementCount, const int gridX,
+__global__ void partition_kernel_receive_halos(const int haloElementCount, const int gridX, const int gridX_offset,
                                                const int pitch_grid, double *buffer_grid,
 const double *halo0, const double *halo1);
 
@@ -33,7 +33,7 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
                                               double *_buffer_grid, double *indenter_force_accumulator);
 
 
-__global__ void partition_kernel_g2p(const bool recordPQ,
+__global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePointTransfer,
                                      const int gridX, const int gridX_offset, const int pitch_grid,
                                      const int count_pts, const int pitch_pts,
                                      double *buffer_pts, const double *buffer_grid,
@@ -71,11 +71,12 @@ __device__ Eigen::Matrix2d dev(Eigen::Matrix2d A);
 
 struct GPU_Partition
 {
+    // these are indices in utility_data array
     constexpr static int idx_transfer_to_left = 0;
     constexpr static int idx_transfer_to_right = 1;
-    constexpr static int idx_points_added_to_soa = 2;
-    constexpr static int idx_disabled_indices = 3;
-    constexpr static size_t utility_data_size = 4;
+//    constexpr static int idx_points_added_to_soa = 2;
+    constexpr static int idx_pts_max_extent = 2;
+    constexpr static size_t utility_data_size = 3;
 
     GPU_Partition();
     ~GPU_Partition();
@@ -94,12 +95,12 @@ struct GPU_Partition
     void p2g();
     void receive_halos();   // neightbour halos were copied, but we need to incorporate them into the grid
     void update_nodes();
-    void g2p(const bool recordPQ);
+    void g2p(const bool recordPQ, const bool enablePointTransfer);
     void receive_points(int nFromLeft, int nFromRight);
 
     // analysis
     void reset_timings();
-    void record_timings();
+    void record_timings(const bool enablePointTransfer);
     void normalize_timings(int cycles);
 
     // helper functions
@@ -107,8 +108,8 @@ struct GPU_Partition
     double *getHaloReceiveAddress(int whichHalo, int whichGridArray);
     int getLeftBufferCount() {return host_side_utility_data[idx_transfer_to_left];}
     int getRightBufferCount() {return host_side_utility_data[idx_transfer_to_right];}
-    int getAddedPtsCount() {return host_side_utility_data[idx_points_added_to_soa];}
-    int getDisabledPtsCount() {return host_side_utility_data[idx_disabled_indices];}
+//    int getAddedPtsCount() {return host_side_utility_data[idx_points_added_to_soa];}
+    int getMaxDeviationValue() {return host_side_utility_data[idx_pts_max_extent];}
 
     // host-side data
     int PartitionID;
@@ -127,9 +128,14 @@ struct GPU_Partition
     // stream and events
     cudaStream_t streamCompute;
 
-    cudaEvent_t event_cycle_start, event_grid_halo_sent, event_halo_accepted, event_g2p_completed;
-    cudaEvent_t event_utility_data_transferred;
-    cudaEvent_t event_pts_sent, event_pts_accepted;
+    cudaEvent_t event_10_cycle_start;
+    cudaEvent_t event_20_grid_halo_sent;
+    cudaEvent_t event_30_halo_accepted;
+    cudaEvent_t event_40_grid_updated;
+    cudaEvent_t event_50_g2p_completed;
+    cudaEvent_t event_60_utility_data_transferred;
+    cudaEvent_t event_70_pts_sent;
+    cudaEvent_t event_80_pts_accepted;
 
     bool initialized = false;
     uint8_t error_code = 0;
@@ -146,8 +152,16 @@ struct GPU_Partition
     double *halo_transfer_buffer[2];
 
     // frame analysis
-    float gridResetAndHalo, acceptHalo, gridUpdateAndG2P, transferUtilityData, stepTotal;
+    float timing_10_P2GAndHalo;
+    float timing_20_acceptHalo;
+    float timing_30_updateGrid;
+    float timing_40_G2P;
+    float timing_50_transferUtilityData;
+    float timing_60_ptsSent;
+    float timing_70_ptsAccepted;
+    float timing_stepTotal;
     int max_pts_sent;
+    int max_pt_deviation;
 };
 
 

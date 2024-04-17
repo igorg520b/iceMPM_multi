@@ -42,7 +42,7 @@ void icy::SimParams::Reset()
     SetupType = 0;
     GrainVariability = 0.50;
 
-    GridHaloSize = 2;
+    GridHaloSize = 5;
     ExtraSpaceForIncomingPoints = 0.2;  // 20%
     PointsTransferBufferFraction = 0.02; // % of points that could "fly over" during a given cycle
     nPartitions = 3;        // one partition of single-gpu; >1 for multi-gpu
@@ -134,6 +134,8 @@ void icy::SimParams::ComputeHelperVariables()
     vmax_squared = vmax*vmax;
 
     VectorCapacity_transfer = nPtsTotal/nPartitions * PointsTransferBufferFraction;
+
+    gbOffset = GridY * GridHaloSize;
 }
 
 void icy::SimParams::ComputeCamClayParams2()
