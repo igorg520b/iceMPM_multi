@@ -272,6 +272,7 @@ void GPU_Implementation5::split_hssoa_into_partitions()
     for(int i=0;i<nPartitions;i++)
     {
         GPU_Partition &p = partitions[i];
+        p.nPts_disabled = 0;
         const int nPartitionsRemaining = nPartitions - i;
         p.nPts_partition = (hssoa.size - nPointsProcessed)/nPartitionsRemaining; // points in this partition
 

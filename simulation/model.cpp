@@ -58,12 +58,20 @@ bool icy::Model::Step()
     spdlog::info("finished {} ({}); host pts {}; cap {}; max_tr {}; max_dev {}", prms.SimulationEndTime,
                  prms.AnimationFrameNumber(), gpu.hssoa.size, gpu.hssoa.capacity, max_points_transferred,
                     max_pt_deviation);
+    prms.SimulationTime = simulation_time;
+    prms.SimulationStep += count_unupdated_steps;
 
     spdlog::info("{:^2s} {:^8s} {:^8s} {:^7s} {:^3s} {:^3s} | {:^5s} {:^5s} {:^5s} | {:^5s} {:^5s} {:^5s} {:^5s} {:^5s} {:^5s} | {:^6s}",
                  "P",    "pts",  "free", "dis","msn", "mdv", "p2g",  "s2",  "S12",     "u",  "g2p", "ud",  "psnt", "prcv","S36", "tot");
+    bool rebalance = false;
     for(GPU_Partition &p : gpu.partitions)
     {
         p.normalize_timings(count_unupdated_steps);
+        double freeSpacePercentage = (double)(p.nPtsPitch-p.nPts_partition)/p.nPts_partition;
+        double disabledPercentage = (double)p.nPts_disabled/p.nPtsPitch;
+        if(freeSpacePercentage < prms.RebalanceThresholdFreeSpaceRemaining) rebalance = true;
+        if(disabledPercentage > prms.RebalanceThresholdDisabledPercentage) rebalance = true;
+
         spdlog::info("{:>2} {:>8} {:>8} {:>7} {:>3} {:>3} | {:>5.1f} {:>5.1f} {:>5.1f} | {:>5.1f} {:>5.1f} {:>5.1f} {:>5.1f} {:5.1f} {:5.1f} | {:>6.1f}",
                      p.PartitionID, p.nPts_partition, (p.nPtsPitch-p.nPts_partition), p.nPts_disabled, p.max_pts_sent, p.max_pt_deviation,
                      p.timing_10_P2GAndHalo, p.timing_20_acceptHalo, (p.timing_10_P2GAndHalo + p.timing_20_acceptHalo),
@@ -72,8 +80,17 @@ bool icy::Model::Step()
                      p.timing_stepTotal);
     }
 
-    prms.SimulationTime = simulation_time;
-    prms.SimulationStep += count_unupdated_steps;
+    // rebalance
+    if(rebalance)
+    {
+        spdlog::info("squeezing and sorting HSSOA");
+        gpu.hssoa.RemoveDisabledAndSort(prms.cellsize_inv, prms.GridY);
+        gpu.split_hssoa_into_partitions();
+        gpu.transfer_ponts_to_device();
+        SyncTopologyRequired = true;
+        spdlog::info("rebalancing done");
+    }
+
     return (prms.SimulationTime < prms.SimulationEndTime);
 }
 
@@ -92,6 +109,7 @@ void icy::Model::Reset()
     max_points_transferred = 0;
     prms.SimulationStep = 0;
     prms.SimulationTime = 0;
+    SyncTopologyRequired = true;
     if(logCycleStats.is_open()) logCycleStats.close();
     logCycleStats.open("cycle_stats.log", std::ios_base::trunc | std::ios_base::out);
 }

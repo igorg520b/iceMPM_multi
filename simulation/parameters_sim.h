@@ -73,6 +73,8 @@ public:
     int GridHaloSize;  // number of grid slices (perpendicular to the x-axis) for "halo" transfers
     double ExtraSpaceForIncomingPoints;     // percentage of points per partition
     double PointsTransferBufferFraction;    // space for points that can "fly over" per simulation step
+    double RebalanceThresholdFreeSpaceRemaining;     // % of the total space
+    double RebalanceThresholdDisabledPercentage;
 
     int nPartitions; // number of partitions (ideally, one partition per device)
     int VectorCapacity_transfer;   // vector capacity for points that fly to another partition

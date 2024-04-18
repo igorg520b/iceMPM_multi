@@ -47,6 +47,9 @@ void icy::SimParams::Reset()
     PointsTransferBufferFraction = 0.02; // % of points that could "fly over" during a given cycle
     nPartitions = 3;        // one partition of single-gpu; >1 for multi-gpu
 
+    RebalanceThresholdFreeSpaceRemaining = 0.15;
+    RebalanceThresholdDisabledPercentage = 0.01;
+
     ComputeLame();
     ComputeCamClayParams2();
     ComputeHelperVariables();

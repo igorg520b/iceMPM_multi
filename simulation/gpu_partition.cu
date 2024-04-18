@@ -86,8 +86,8 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
             int j2 = j+base_coord_i[1];
             if(i2<(-halo)) gpu_error_indicator = 70;
             if(j2<0) gpu_error_indicator = 71;
-            if(i2>=(gridX+halo-3)) gpu_error_indicator = 72;
-            if(j2>=gridY-3) gpu_error_indicator = 73;
+            if(i2>(gridX+halo-3)) gpu_error_indicator = 72;
+            if(j2>gridY-3) gpu_error_indicator = 73;
 
             int idx_gridnode = j2 + i2*gridY;
             // Udpate mass, velocity and force
@@ -194,9 +194,9 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
 
     // attached bottom layer
     if(gi.y() <= 2) velocity.setZero();
-    else if(gi.y() >= gridY-3 && velocity[1]>0) velocity[1] = 0;
+    else if(gi.y() >= gridY-4 && velocity[1]>0) velocity[1] = 0;
     if(gi.x() <= 2 && velocity[0]<0) velocity[0] = 0;
-    else if(gi.x() >= gridXTotal-3 && velocity[0]>0) velocity[0] = 0;
+    else if(gi.x() >= gridXTotal-4 && velocity[0]>0) velocity[0] = 0;
 
     // side boundary conditions would go here
 

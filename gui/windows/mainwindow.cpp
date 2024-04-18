@@ -304,7 +304,15 @@ void MainWindow::updateGUI()
     labelElapsedTime->setText(QString("%1 s").arg(model.prms.SimulationTime,0,'f',3));
     //statusLabel->setText(QString("per cycle: %1 ms").arg(model.compute_time_per_cycle,0,'f',3));
 
-    representation.SynchronizeValues();
+    if(model.SyncTopologyRequired)
+    {
+        model.SyncTopologyRequired = false;
+        representation.SynchronizeTopology();
+    }
+    else
+    {
+        representation.SynchronizeValues();
+    }
     renderWindow->Render();
 
     worker->visual_update_requested = false;

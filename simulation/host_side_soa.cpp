@@ -30,18 +30,14 @@ void HostSideSOA::offsetBlock(Eigen::Vector2d offset)
 
 void HostSideSOA::RemoveDisabledAndSort(double hinv, unsigned GridY)
 {
-    spdlog::info("nPtsArrays {}",icy::SimParams::nPtsArrays);
+    spdlog::info("RemoveDisabledAndSort; nPtsArrays {}", icy::SimParams::nPtsArrays);
     unsigned size_before = size;
     SOAIterator it_result = std::remove_if(begin(), end(), [](ProxyPoint &p){return p.getDisabledStatus();});
     size = it_result.m_point.pos;
-    spdlog::info("RemoveDisabledAndSort: {} removed", size_before-size);
+    spdlog::info("RemoveDisabledAndSort: {} removed; new size {}", size_before-size, size);
     std::sort(begin(), end(),
               [&hinv,&GridY](ProxyPoint &p1, ProxyPoint &p2)
               {return p1.getCellIndex(hinv,GridY)<p2.getCellIndex(hinv,GridY);});
-//    for(auto it=begin();it!=end();++it) std::cout << it->getCellIndex(hinv,GridY) << ", ";
-    spdlog::info("sorting done");
-    std::cout << std::endl;
-    std::cout << hinv << std::endl;
     spdlog::info("RemoveDisabledAndSort done");
 }
 
@@ -185,6 +181,7 @@ void ProxyPoint::setPartition(uint8_t PartitionID)
 
     long long _pid = (long long)PartitionID;
     _pid <<= 24;
+    val &= 0xffffffll;
     val |= _pid;
 
     long long *ptr;
