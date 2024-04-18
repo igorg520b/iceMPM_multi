@@ -31,8 +31,11 @@ public:
 
     std::function<void()> transfer_completion_callback;
 
-    void device_allocate_arrays();
+    void allocate_arrays();
+    void split_hssoa_into_partitions();     // perform grid and point partitioning
     void transfer_ponts_to_device();
+
+    void initialize_and_enable_peer_access();
     void transfer_from_device();
 
     void synchronize(); // call before terminating the main thread

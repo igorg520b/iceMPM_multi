@@ -60,8 +60,8 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
     }
 
     Matrix2d PFt = KirchhoffStress_Wolper(Fe);
-//    Matrix2d subterm2 = particle_mass*Bp - (gprms.dt_vol_Dpinv)*PFt;
-    Matrix2d subterm2 = particle_mass*Bp - (gprms.InitialTimeStep*gprms.ParticleVolume*gprms.Dp_inv)*PFt;
+    Matrix2d subterm2 = particle_mass*Bp - (gprms.dt_vol_Dpinv)*PFt;
+//    Matrix2d subterm2 = particle_mass*Bp - (gprms.InitialTimeStep*gprms.ParticleVolume*gprms.Dp_inv)*PFt;
 
     Eigen::Vector2i base_coord_i = (pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // coords of base grid node for point
     Vector2d base_coord = base_coord_i.cast<double>();
@@ -86,8 +86,8 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
             int j2 = j+base_coord_i[1];
             if(i2<(-halo)) gpu_error_indicator = 70;
             if(j2<0) gpu_error_indicator = 71;
-            if(i2>=(gridX+halo)) gpu_error_indicator = 72;
-            if(j2>=gridY) gpu_error_indicator = 73;
+            if(i2>=(gridX+halo-3)) gpu_error_indicator = 72;
+            if(j2>=gridY-3) gpu_error_indicator = 73;
 
             int idx_gridnode = j2 + i2*gridY;
             // Udpate mass, velocity and force
@@ -112,8 +112,8 @@ __global__ void partition_kernel_receive_halos(const int haloElementCount,
 
     for(int i=0; i<icy::SimParams::nGridArrays; i++)
     {
-        buffer_grid[idx + i*pitch_grid + gridY*gridX_offset] += halo0[idx + i*pitch_grid];
-        buffer_grid[idx + i*pitch_grid + gridY*(gridX_offset+gridX)] += halo1[idx + i*pitch_grid];
+        buffer_grid[idx + i*pitch_grid] += halo0[idx + i*pitch_grid];
+        buffer_grid[idx + i*pitch_grid + gridY*gridX] += halo1[idx + i*pitch_grid];
     }
 }
 
@@ -141,7 +141,7 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
     const int &halo = gprms.GridHaloSize;
     const int &gridY = gprms.GridY;
 //    const int offset = gprms.gbOffset + gridX_offset*gridY;
-    const int offset = gridX_offset*gridY;
+    const int offset = 0;//gridX_offset*gridY;
 
     double mass = buffer_grid[idx + offset];
     if(mass == 0) return;
@@ -264,7 +264,7 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePoint
             Vector2d dpos = Vector2d(i, j) - fx;
             double weight = ww[i][0]*ww[j][1];
 
-            int i2 = i+base_coord_i[0];//-gridX_offset;  // todo: fix this
+            int i2 = i+base_coord_i[0]-gridX_offset;
             int j2 = j+base_coord_i[1];
             int idx_gridnode = j2 + i2*gridY;
 
@@ -307,10 +307,11 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePoint
     }
 
     // check if a points needs to be transferred to adjacent partition
-//    base_coord_i = (p.pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // update the base node index
-    int base_coord_x = (int)(p.pos.x()*h_inv - 0.5);
+    int base_coord_x = (int)(p.pos.x()*h_inv - 0.5); // updated after the point has moved
     constexpr int fly_threshold = 4;
-    const int keep_track_threshold = halo/2;
+
+    // TODO: WE DON'T REALLY NEED OT KEEP TRACK OF THIS PARAMETER UNLESS IT ACTUALLY EXCEEDS HALO
+    const int keep_track_threshold = 2;//halo/2;
     if((base_coord_x - gridX_offset) < -keep_track_threshold)
     {
         int deviation = -(base_coord_x - gridX_offset);
@@ -609,11 +610,7 @@ void GPU_Partition::transfer_points_from_soa_to_device(HostSideSOA &hssoa, int p
 {
     cudaError_t err;
     err = cudaSetDevice(Device);
-    if(err != cudaSuccess)
-    {
-        spdlog::critical("error setting the device {} in transfer points",Device);
-        throw std::runtime_error("transfer_points_from_soa_to_device");
-    }
+    if(err != cudaSuccess) throw std::runtime_error("transfer_points_from_soa_to_device");
 
     // due to the layout of host-side SOA, we transfer the pts arrays one-by-one
     for(int i=0;i<icy::SimParams::nPtsArrays;i++)
@@ -699,23 +696,24 @@ void GPU_Partition::initialize(int device, int partition)
 }
 
 
-void GPU_Partition::allocate(int n_points_capacity, int grid_x_capacity)
+void GPU_Partition::allocate(int n_points_capacity, int gx)
 {
     cudaError_t err;
     cudaSetDevice(Device);
 
     // grid
-    // TODO: no need to allocate full grid
     const int &halo = prms->GridHaloSize;
     const int &gy = prms->GridY;
-    const int &gx = prms->GridXTotal; // todo: replace with grid_x_capacity
-    size_t grid_size_local_requested = sizeof(double) * gy * (3*gx + 6*halo);
+
+    size_t total_device = 0;
+    size_t grid_size_local_requested = sizeof(double) * gy * (gx + 6*halo);
     cudaMallocPitch (&grid_array, &nGridPitch, grid_size_local_requested, icy::SimParams::nGridArrays);
+    total_device += nGridPitch * icy::SimParams::nGridArrays;
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate grid array");
     nGridPitch /= sizeof(double); // assume that this divides without remainder
 
     halo_transfer_buffer[0] = grid_array + gy*(gx+2*halo);
-    halo_transfer_buffer[1] = grid_array + gy*(2*gx+4*halo);
+    halo_transfer_buffer[1] = grid_array + gy*(gx+4*halo);
 
     // host-side indenter accumulator
     err = cudaMallocHost(&host_side_indenter_force_accumulator, prms->IndenterArraySize());
@@ -729,13 +727,16 @@ void GPU_Partition::allocate(int n_points_capacity, int grid_x_capacity)
     // points
     const size_t pts_buffer_requested = sizeof(double) * n_points_capacity;
     err = cudaMallocPitch(&pts_array, &nPtsPitch, pts_buffer_requested, icy::SimParams::nPtsArrays);
+    total_device += nPtsPitch * icy::SimParams::nPtsArrays;
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate");
     nPtsPitch /= sizeof(double);
 
     // point transfer buffers
     for(int i=0;i<4;i++)
     {
-        err = cudaMalloc(&point_transfer_buffer[i], prms->VectorCapacity_transfer*icy::SimParams::nPtsArrays*sizeof(double));
+        size_t count = prms->VectorCapacity_transfer*icy::SimParams::nPtsArrays*sizeof(double);
+        err = cudaMalloc(&point_transfer_buffer[i], count);
+        total_device += count;
         if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate");
     }
 
@@ -745,19 +746,10 @@ void GPU_Partition::allocate(int n_points_capacity, int grid_x_capacity)
     err = cudaMalloc(&device_side_utility_data, utility_data_size*sizeof(int));
     if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate space for utility data");
 
-    spdlog::info("Partition {}-{}: allocated GridPitch {} ({}); Pts {}; PtsTransfer {}; grid_size_local_requested {}",
+    spdlog::info("allocate: P {}-{}:  GridPitch/Y {}; Pts {}; PtsTransfer {}; total {:.2} Mb",
                  PartitionID, Device,
-                 nGridPitch, nGridPitch/prms->GridY, nPtsPitch,
-                 prms->VectorCapacity_transfer, grid_size_local_requested);
-}
-
-
-void GPU_Partition::clear_utility_vectors()
-{
-    spdlog::info("P {} D {}, utility vectors clear",PartitionID,Device);
-    cudaSetDevice(Device);
-    cudaError_t err = cudaMemsetAsync(device_side_utility_data, 0, utility_data_size*sizeof(int), streamCompute);
-    if(err != cudaSuccess) throw std::runtime_error("initialize_utility_vectors");
+                 nGridPitch/prms->GridY, nPtsPitch,
+                 prms->VectorCapacity_transfer, (double)total_device/(1024*1024));
 }
 
 
@@ -796,7 +788,7 @@ void GPU_Partition::p2g()
 {
     cudaSetDevice(Device);
     const int gridX = prms->GridXTotal; // todo: change to gridx_partition
-    const int gridXoffset = 0; // todo: chagne to gridx_offset
+    const int gridXoffset = GridX_offset;
 
     const int &n = nPts_partition;
     const int &tpb = prms->tpb_P2G;

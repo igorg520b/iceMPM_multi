@@ -85,7 +85,6 @@ struct GPU_Partition
     void initialize(int device, int partition);
     void allocate(int n_points_capacity, int grid_x_capacity);
     void transfer_points_from_soa_to_device(HostSideSOA &hssoa, int point_idx_offset);
-    void clear_utility_vectors();
     void update_constants();
     void transfer_from_device(HostSideSOA &hssoa, int point_idx_offset);
 

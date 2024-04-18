@@ -48,7 +48,7 @@ void GPU_Implementation5::p2g()
             GPU_Partition &pprev = partitions[i-1];
             for(int j=0;j<icy::SimParams::nGridArrays;j++)
             {
-                double *src = p.grid_array + j*p.nGridPitch + gridY*p.GridX_offset;
+                double *src = p.grid_array + j*p.nGridPitch;
                 double *dst = pprev.halo_transfer_buffer[1] + j*pprev.nGridPitch;
                 const size_t halo_count = sizeof(double)*gridY*halo*2;
                 err = cudaMemcpyPeerAsync(dst, pprev.Device, src, p.Device, halo_count, p.streamCompute);
@@ -63,7 +63,7 @@ void GPU_Implementation5::p2g()
             GPU_Partition &pnxt = partitions[i+1];
             for(int j=0;j<icy::SimParams::nGridArrays;j++)
             {
-                double *src = p.grid_array + j*p.nGridPitch + gridY*(p.GridX_offset+p.GridX_partition);
+                double *src = p.grid_array + j*p.nGridPitch + gridY*(p.GridX_partition);
                 double *dst = pnxt.halo_transfer_buffer[0] + j*pnxt.nGridPitch;
                 const size_t halo_count = sizeof(double)*gridY*halo*2;
                 err = cudaMemcpyPeerAsync(dst, pnxt.Device, src, p.Device, halo_count, p.streamCompute);
@@ -210,31 +210,26 @@ void GPU_Implementation5::record_timings(const bool enablePointTransfer)
 
 // ==========================================================================
 
-void GPU_Implementation5::device_allocate_arrays()
+
+
+
+void GPU_Implementation5::initialize_and_enable_peer_access()
 {
-    cudaError_t err;
-    const unsigned &nPts = model->prms.nPtsTotal;
-    const unsigned &nPartitions = model->prms.nPartitions;
+    const int &nPartitions = model->prms.nPartitions;
 
     // count available GPUs
     int deviceCount = 0;
-    err = cudaGetDeviceCount(&deviceCount);
+    cudaError_t err = cudaGetDeviceCount(&deviceCount);
     if (err != cudaSuccess) throw std::runtime_error("cudaGetDeviceCount error");
     if(deviceCount == 0) throw std::runtime_error("No avaialble CUDA devices");
 
     partitions.clear();
-
-    int whichDevice = 0;
-    unsigned points_counter = 0;
-    unsigned grid_x_cell_counter = 0;
-    const unsigned points_requested_per_partition = (nPts/nPartitions) * (1 + model->prms.ExtraSpaceForIncomingPoints);
     partitions.resize(nPartitions);
+
     for(int i=0;i<nPartitions;i++)
     {
         GPU_Partition &p = partitions[i];
-        p.initialize(whichDevice, i);
-        p.allocate(points_requested_per_partition, model->prms.GridXTotal); // at this time, we allocate the full grid
-        whichDevice = (whichDevice+1)%deviceCount;  // spread partitions across the available devices
+        p.initialize(i%deviceCount, i);
     }
 
     for(int i=0;i<nPartitions;i++)
@@ -247,12 +242,7 @@ void GPU_Implementation5::device_allocate_arrays()
             if(p.Device != pprev.Device)
             {
                 err = cudaDeviceEnablePeerAccess(pprev.Device, 0);
-                if(err != cudaSuccess)
-                {
-                    const char *errorString = cudaGetErrorString(err);
-                    spdlog::critical("{}; cannot enable peer-peer access from {} to {}; error: ", err, p.PartitionID, pprev.PartitionID, errorString);
-                    throw std::runtime_error("GPU_Implementation5::device_allocate_arrays() cudaDeviceEnablePeerAccess");
-                }
+                if(err != cudaSuccess) throw std::runtime_error("GPU_Implementation5::device_allocate_arrays() cudaDeviceEnablePeerAccess");
             }
         }
         if(i!=nPartitions-1)
@@ -262,68 +252,84 @@ void GPU_Implementation5::device_allocate_arrays()
             if(p.Device != pnxt.Device)
             {
                 err = cudaDeviceEnablePeerAccess(pnxt.Device, 0);
-                if(err != cudaSuccess)
-                {
-                    const char *errorString = cudaGetErrorString(err);
-                    spdlog::critical("{}; cannot enable peer-peer access from {} to {}; error: ", err, p.PartitionID, pnxt.PartitionID, errorString);
-                    throw std::runtime_error("GPU_Implementation5::device_allocate_arrays() cudaDeviceEnablePeerAccess");
-                }
+                if(err != cudaSuccess) throw std::runtime_error("GPU_Implementation5::device_allocate_arrays() cudaDeviceEnablePeerAccess");
             }
         }
     }
 }
 
-void GPU_Implementation5::transfer_ponts_to_device()
+
+void GPU_Implementation5::split_hssoa_into_partitions()
 {
-    spdlog::info("GPU_Implementation: transfer_to_device() start");
+    spdlog::info("split_hssoa_into_partitions() start");
     const double &hinv = model->prms.cellsize_inv;
     const int &GridXTotal = model->prms.GridXTotal;
+    const int &nPartitions = model->prms.nPartitions;
 
-    unsigned nPointsUploaded = 0;
-    const unsigned &nPartitions = model->prms.nPartitions;
+    unsigned nPointsProcessed = 0;
     unsigned GridOffset = 0;
-    // distribute points except of the last partition
+
     for(int i=0;i<nPartitions;i++)
     {
-        unsigned nPartitionsRemaining = nPartitions - i;
-        unsigned tentativePointCount = (hssoa.size - nPointsUploaded)/nPartitionsRemaining;
-        int tentativePointIndex = nPointsUploaded + tentativePointCount;
+        GPU_Partition &p = partitions[i];
+        const int nPartitionsRemaining = nPartitions - i;
+        p.nPts_partition = (hssoa.size - nPointsProcessed)/nPartitionsRemaining; // points in this partition
 
         // find the index of the first point with x-index cellsIdx
-        unsigned pt_idx;
-        if(i==(nPartitions-1))
+        if(i < nPartitions-1)
         {
-            pt_idx = hssoa.size;
-            partitions[i].GridX_partition = GridXTotal-partitions[i].GridX_offset;
-        }
-        else
-        {
-            pt_idx = tentativePointIndex;
-            SOAIterator it2 = hssoa.begin()+tentativePointIndex;
-            const ProxyPoint &pt = *it2;
-            int cellsIdx = pt.getXIndex(hinv);
-            partitions[i].GridX_partition = cellsIdx-partitions[i].GridX_offset;
-            //pt_idx = hssoa.FindFirstPointAtGridXIndex(cellsIdx, hinv);
+            SOAIterator it2 = hssoa.begin() + (nPointsProcessed + p.nPts_partition);
+            const int cellsIdx = it2->getXIndex(hinv);
+            p.GridX_partition = cellsIdx - p.GridX_offset;
             partitions[i+1].GridX_offset = cellsIdx;
         }
-        // last partition must span to the "end" of the gird along the x-axis
-        partitions[i].nPts_partition = pt_idx-nPointsUploaded;
+        else if(i == nPartitions-1)
+        {
+            // the last partition spans the rest of the grid along the x-axis
+            p.GridX_partition = GridXTotal - p.GridX_offset;
+        }
 
 #pragma omp parallel for
-        for(int j=nPointsUploaded;j<pt_idx;j++)
+        for(int j=nPointsProcessed;j<(nPointsProcessed+p.nPts_partition);j++)
         {
             SOAIterator it = hssoa.begin()+j;
             it->setPartition((uint8_t)i);
         }
 
-        spdlog::info("transfer partition {}; grid offset {}; grid size {}, npts {}",
+        spdlog::info("split: P {}; grid_offset {}; grid_size {}, npts {}",
                      i, partitions[i].GridX_offset, partitions[i].GridX_partition, partitions[i].nPts_partition);
-        partitions[i].transfer_points_from_soa_to_device(hssoa, nPointsUploaded);
-        nPointsUploaded = pt_idx;
+        nPointsProcessed += p.nPts_partition;
     }
+}
 
-    for(int i=0;i<partitions.size();i++) partitions[i].clear_utility_vectors();
-    spdlog::info("transfer_ponts_to_device() done; uploaded {}",nPointsUploaded);
+
+void GPU_Implementation5::allocate_arrays()
+{
+    cudaError_t err;
+    const unsigned &nPts = model->prms.nPtsTotal;
+
+    auto it = std::max_element(partitions.begin(), partitions.end(),
+                               [](const GPU_Partition &p1, const GPU_Partition &p2)
+                               {return p1.GridX_partition < p2.GridX_partition;});
+    int max_GridX_size = it->GridX_partition;
+    int GridX_size = std::min(max_GridX_size*2, model->prms.GridXTotal);
+
+    const unsigned points_requested_per_partition = (nPts/partitions.size()) * (1 + model->prms.ExtraSpaceForIncomingPoints);
+    for(GPU_Partition &p : partitions) p.allocate(points_requested_per_partition, GridX_size);
+}
+
+
+
+void GPU_Implementation5::transfer_ponts_to_device()
+{
+    spdlog::info("GPU_Implementation: transfer_to_device()");
+    int points_uploaded = 0;
+    for(GPU_Partition &p : partitions)
+    {
+        p.transfer_points_from_soa_to_device(hssoa, points_uploaded);
+        points_uploaded += p.nPts_partition;
+    }
+    spdlog::info("transfer_ponts_to_device() done; transferred points {}", points_uploaded);
 }
 
 

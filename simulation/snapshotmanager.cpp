@@ -97,11 +97,10 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     model->prms.ComputeHelperVariables();
 
     // allocate GPU partitions
-    model->gpu.device_allocate_arrays();
-
-    // transfer points to device(s)
+    model->gpu.initialize_and_enable_peer_access();
+    model->gpu.split_hssoa_into_partitions();
+    model->gpu.allocate_arrays();
     model->gpu.transfer_ponts_to_device();
-
 
     model->Reset();
     model->Prepare();

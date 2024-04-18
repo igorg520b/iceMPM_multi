@@ -7,7 +7,9 @@ std::pair<Eigen::Vector2d, Eigen::Vector2d> HostSideSOA::getBlockDimensions()
     Eigen::Vector2d result[2];
     for(int k=0;k<2;k++)
     {
-        std::pair<SOAIterator, SOAIterator> it_res = std::minmax_element(begin(), end(), [k](ProxyPoint &p1, ProxyPoint &p2) {return p1.getValue(icy::SimParams::posx+k)<p2.getValue(icy::SimParams::posx+k);});
+        std::pair<SOAIterator, SOAIterator> it_res = std::minmax_element(begin(), end(),
+                                                                         [k](ProxyPoint &p1, ProxyPoint &p2)
+                                                                         {return p1.getValue(icy::SimParams::posx+k)<p2.getValue(icy::SimParams::posx+k);});
         result[0][k] = (*it_res.first).getValue(icy::SimParams::posx+k);
         result[1][k] = (*it_res.second).getValue(icy::SimParams::posx+k);
     }
