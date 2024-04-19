@@ -228,7 +228,7 @@ void GPU_Implementation5::initialize_and_enable_peer_access()
         GPU_Partition &p = partitions[i];
         p.initialize(i%deviceCount, i);
     }
-
+/*
     for(int i=0;i<nPartitions;i++)
     {
         GPU_Partition &p = partitions[i];
@@ -241,6 +241,9 @@ void GPU_Implementation5::initialize_and_enable_peer_access()
             // enable access to device on the left
             if(p.Device != pprev.Device)
             {
+                int canAccess;
+                err = cudaDeviceCanAccessPeer(&canAccessPeer, p.Device,  )
+
                 err = cudaDeviceEnablePeerAccess(pprev.Device, 0);
                 if(err != cudaSuccess)
                 {
@@ -264,6 +267,7 @@ void GPU_Implementation5::initialize_and_enable_peer_access()
             }
         }
     }
+*/
 }
 
 
