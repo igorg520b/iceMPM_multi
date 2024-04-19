@@ -688,6 +688,7 @@ void GPU_Partition::allocate(int n_points_capacity, int gx)
 {
     cudaError_t err;
     cudaSetDevice(Device);
+    spdlog::info("P{}-{} allocate", PartitionID, Device);
 
     // grid
     const int &halo = prms->GridHaloSize;
@@ -697,7 +698,12 @@ void GPU_Partition::allocate(int n_points_capacity, int gx)
     size_t grid_size_local_requested = sizeof(double) * gy * (gx + 6*halo);
     cudaMallocPitch (&grid_array, &nGridPitch, grid_size_local_requested, icy::SimParams::nGridArrays);
     total_device += nGridPitch * icy::SimParams::nGridArrays;
-    if(err != cudaSuccess) throw std::runtime_error("GPU_Partition allocate grid array");
+    if(err != cudaSuccess)
+    {
+        const char *s = cudaGetErrorString(err);
+        spdlog::error("err {}: {}", err, s);
+        throw std::runtime_error("GPU_Partition allocate grid array");
+    }
     nGridPitch /= sizeof(double); // assume that this divides without remainder
 
     halo_transfer_buffer[0] = grid_array + gy*(gx+2*halo);
