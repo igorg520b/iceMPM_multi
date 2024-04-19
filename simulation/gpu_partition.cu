@@ -31,15 +31,15 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
     long long utility_data = ptr[pt_idx];
     if(utility_data & status_disabled) return; // point is disabled
 
-    const double &dt = gprms.InitialTimeStep;
-    const double &vol = gprms.ParticleVolume;
+    //const double &dt = gprms.InitialTimeStep;
+    //const double &vol = gprms.ParticleVolume;
     const double &h = gprms.cellsize;
     const double &h_inv = gprms.cellsize_inv;
-    const double &Dinv = gprms.Dp_inv;
+    //const double &Dinv = gprms.Dp_inv;
     const double &particle_mass = gprms.ParticleMass;
 
     const int &gridY = gprms.GridY;
-    const int &gridXTotal = gprms.GridXTotal;
+    //const int &gridXTotal = gprms.GridXTotal;
     const int &halo = gprms.GridHaloSize;
 
     const int &offset = gprms.gbOffset;
@@ -106,9 +106,9 @@ __global__ void partition_kernel_receive_halos(const int haloElementCount,
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if(idx >= haloElementCount) return;
 
-    const int &halo = gprms.GridHaloSize;
+    //const int &halo = gprms.GridHaloSize;
     const int &gridY = gprms.GridY;
-    const int offset = gprms.gbOffset;
+    //const int offset = gprms.gbOffset;
 
     for(int i=0; i<icy::SimParams::nGridArrays; i++)
     {
@@ -146,7 +146,7 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
     double vy = buffer_grid[2*pitch_grid + idx];
     if(mass == 0) return;
 
-    const double &gravity = gprms.Gravity;
+    //const double &gravity = gprms.Gravity;
     const double &indRsq = gprms.IndRSq;
     const double &dt = gprms.InitialTimeStep;
     const double &ind_velocity = gprms.IndVelocity;
@@ -696,7 +696,7 @@ void GPU_Partition::allocate(int n_points_capacity, int gx)
 
     size_t total_device = 0;
     size_t grid_size_local_requested = sizeof(double) * gy * (gx + 6*halo);
-    cudaMallocPitch (&grid_array, &nGridPitch, grid_size_local_requested, icy::SimParams::nGridArrays);
+    err = cudaMallocPitch (&grid_array, &nGridPitch, grid_size_local_requested, icy::SimParams::nGridArrays);
     total_device += nGridPitch * icy::SimParams::nGridArrays;
     if(err != cudaSuccess)
     {
@@ -851,9 +851,6 @@ void GPU_Partition::g2p(const bool recordPQ, const bool enablePointTransfer)
     const int &n = nPts_partition;
     const int &tpb = prms->tpb_G2P;
     const int nBlocks = (n + tpb - 1) / tpb;
-
-    int gridxoffset = 0; // todo: change to GridX_offset
-    int gridxpartition = prms->GridXTotal; // todo change to GridX_partition;
 
     partition_kernel_g2p<<<nBlocks, tpb, 0, streamCompute>>>(recordPQ, enablePointTransfer,
                                                              GridX_partition, GridX_offset, nGridPitch,
