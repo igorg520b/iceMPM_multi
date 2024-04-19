@@ -1,6 +1,6 @@
 {
 "InputRawPoints":"geometries_2d/2d_250k.h5",
-"nPartitions":8,
+"nPartitions":2,
 "GridHaloSize":12,
 "ExtraSpaceForIncomingPoints":0.2,
 
