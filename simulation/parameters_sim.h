@@ -50,7 +50,7 @@ public:
     double Gravity, Density, PoissonsRatio, YoungsModulus;
     double lambda, mu, kappa; // Lame
 
-    double IceCompressiveStrength, IceTensileStrength, IceShearStrength;
+    double IceCompressiveStrength, IceTensileStrength, IceShearStrength, IceTensileStrength2;
     double NACC_beta, NACC_M, NACC_Msq;     // these are all computed
 
     double DP_tan_phi, DP_threshold_p;
@@ -75,6 +75,7 @@ public:
     double PointsTransferBufferFraction;    // space for points that can "fly over" per simulation step
     double RebalanceThresholdFreeSpaceRemaining;     // % of the total space
     double RebalanceThresholdDisabledPercentage;
+    int PointTransferFrequency; // n times per cycle
 
     int nPartitions; // number of partitions (ideally, one partition per device)
     int VectorCapacity_transfer;   // vector capacity for points that fly to another partition

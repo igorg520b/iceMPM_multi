@@ -293,7 +293,7 @@ void MainWindow::simulation_data_ready()
 //    snapshot.SaveSnapshot(outputDirectory);
 //    snapshot.SavePQ(outputDirectory);
 //    if(ui->actionTake_Screenshots->isChecked())
-///        screenshot();
+        screenshot();
     model.UnlockCycleMutex();
 }
 

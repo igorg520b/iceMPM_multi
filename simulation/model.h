@@ -21,6 +21,9 @@
 #include <Eigen/SVD>
 #include <Eigen/LU>
 
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/basic_file_sink.h>
+
 
 namespace icy { class Model; }
 
@@ -43,10 +46,12 @@ public:
     bool SyncTopologyRequired;
 
     std::mutex processing_current_cycle_data; // locked until the current cycle results' are copied to host and processed
+    std::mutex accessing_point_data;
 
 private:
     std::ofstream logCycleStats;
     bool abortRequested;
+    std::shared_ptr<spdlog::logger> log_timing;
 };
 
 #endif

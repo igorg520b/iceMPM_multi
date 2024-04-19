@@ -21,7 +21,7 @@ icy::VisualRepresentation::VisualRepresentation()
         hueLut_pastel->SetTableValue(i, lutArrayPastel[i][0],
                               lutArrayPastel[i][1],
                               lutArrayPastel[i][2], 1.0);
-    hueLut_pastel->SetTableRange(0,40);
+    hueLut_pastel->SetTableRange(0,nLut-1);
 
     nLut = sizeof lutArrayMPMColors / sizeof lutArrayMPMColors[0];
     lutMPM->SetNumberOfTableValues(nLut);
@@ -133,12 +133,14 @@ icy::VisualRepresentation::VisualRepresentation()
 
 void icy::VisualRepresentation::SynchronizeTopology()
 {
+    model->accessing_point_data.lock();
+
     spdlog::info("SynchronizeTopology()");
+
     points->SetNumberOfPoints(model->prms.nPtsTotal);
     visualized_values->SetNumberOfValues(model->prms.nPtsTotal);
     indenterSource->SetRadius(model->prms.IndDiameter/2.f);
 
-    SynchronizeValues();
 
     int gx = model->prms.GridXTotal;
     int gy = model->prms.GridY;
@@ -179,11 +181,16 @@ void icy::VisualRepresentation::SynchronizeTopology()
     partitions_grid_points->SetPoint(2*nPartitions + 1, pt_pos2);
 
     partitionsGrid->SetPoints(partitions_grid_points);
+
+    model->accessing_point_data.unlock();
+    SynchronizeValues();
 }
 
 
 void icy::VisualRepresentation::SynchronizeValues()
 {
+    model->accessing_point_data.lock();
+
     // spdlog::info("SynchronizeValues() npts {}", model->prms.nPtsTotal);
     double indenter_x = model->prms.indenter_x;
     double indenter_y = model->prms.indenter_y;
@@ -200,6 +207,7 @@ void icy::VisualRepresentation::SynchronizeValues()
 //        spdlog::info("setting point {}; {} - {}", activePtsCount, pos[0], pos[1]);
         activePtsCount++;
     }
+    if(activePtsCount != model->prms.nPtsTotal) throw std::runtime_error("SynchronizeValues() point count mismatch (pos)");
     points->Modified();
     actor_points->GetProperty()->SetPointSize(model->prms.ParticleViewSize);
     points_filter->Update();
@@ -223,8 +231,11 @@ void icy::VisualRepresentation::SynchronizeValues()
             SOAIterator s = model->gpu.hssoa.begin()+i;
             if(s->getDisabledStatus()) continue;
             uint8_t partition = s->getPartition();
+            bool isCrushed = s->getCrushedStatus();
+            if(isCrushed) partition = 41;
             visualized_values->SetValue((vtkIdType)activePtsCount++, (float)partition);
         }
+        if(activePtsCount != model->prms.nPtsTotal) throw std::runtime_error("SynchronizeValues() point count mismatch");
         visualized_values->Modified();
     }
     else if(VisualizingVariable == VisOpt::status)
@@ -244,6 +255,7 @@ void icy::VisualRepresentation::SynchronizeValues()
             bool isCrushed = s->getCrushedStatus();
             visualized_values->SetValue((vtkIdType)activePtsCount++, (float)(isCrushed ? 1 : 0));
         }
+        if(activePtsCount != model->prms.nPtsTotal) throw std::runtime_error("SynchronizeValues() point count mismatch");
         visualized_values->Modified();
     }
     else if(VisualizingVariable == VisOpt::Jp_inv)
@@ -264,6 +276,7 @@ void icy::VisualRepresentation::SynchronizeValues()
             double value = s->getValue(icy::SimParams::idx_Jp_inv)-1;
             visualized_values->SetValue((vtkIdType)activePtsCount++, (float)value);
         }
+        if(activePtsCount != model->prms.nPtsTotal) throw std::runtime_error("SynchronizeValues() point count mismatch");
         visualized_values->Modified();
     }
     else if(VisualizingVariable == VisOpt::grains)
@@ -282,8 +295,11 @@ void icy::VisualRepresentation::SynchronizeValues()
             SOAIterator s = model->gpu.hssoa.begin()+i;
             if(s->getDisabledStatus()) continue;
             uint16_t grain = s->getGrain()%40;
+            bool isCrushed = s->getCrushedStatus();
+            if(isCrushed) grain = 41;
             visualized_values->SetValue((vtkIdType)activePtsCount++, (float)grain);
         }
+        if(activePtsCount != model->prms.nPtsTotal) throw std::runtime_error("SynchronizeValues() point count mismatch");
         visualized_values->Modified();
     }
     else
@@ -291,6 +307,7 @@ void icy::VisualRepresentation::SynchronizeValues()
         points_mapper->ScalarVisibilityOff();
         scalarBar->VisibilityOff();
     }
+    model->accessing_point_data.unlock();
 
 }
 

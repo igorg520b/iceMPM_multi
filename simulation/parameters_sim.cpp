@@ -28,8 +28,9 @@ void icy::SimParams::Reset()
     SimulationTime = 0;
 
     IceCompressiveStrength = 100e6;
-    IceTensileStrength = 1e6;
-    IceShearStrength = 0.5e6;
+    IceTensileStrength = 10e6;
+    IceShearStrength = 6e6;
+    IceTensileStrength2 = 5e6;
 
     DP_tan_phi = std::tan(30*pi/180.);
     DP_threshold_p = 1e3;
@@ -44,11 +45,12 @@ void icy::SimParams::Reset()
 
     GridHaloSize = 5;
     ExtraSpaceForIncomingPoints = 0.2;  // 20%
-    PointsTransferBufferFraction = 0.02; // % of points that could "fly over" during a given cycle
+    PointsTransferBufferFraction = 0.05; // % of points that could "fly over" during a given cycle
     nPartitions = 3;        // one partition of single-gpu; >1 for multi-gpu
 
     RebalanceThresholdFreeSpaceRemaining = 0.15;
     RebalanceThresholdDisabledPercentage = 0.01;
+    PointTransferFrequency = 2;
 
     ComputeLame();
     ComputeCamClayParams2();
@@ -87,6 +89,7 @@ std::string icy::SimParams::ParseFile(std::string fileName)
 
     if(doc.HasMember("IceCompressiveStrength")) IceCompressiveStrength = doc["IceCompressiveStrength"].GetDouble();
     if(doc.HasMember("IceTensileStrength")) IceTensileStrength = doc["IceTensileStrength"].GetDouble();
+    if(doc.HasMember("IceTensileStrength2")) IceTensileStrength2 = doc["IceTensileStrength2"].GetDouble();
     if(doc.HasMember("IceShearStrength")) IceShearStrength = doc["IceShearStrength"].GetDouble();
 
     if(doc.HasMember("DP_phi")) DP_tan_phi = std::tan(doc["DP_phi"].GetDouble()*pi/180);
@@ -98,6 +101,9 @@ std::string icy::SimParams::ParseFile(std::string fileName)
     if(doc.HasMember("tpb_G2P")) tpb_G2P = doc["tpb_G2P"].GetInt();
     if(doc.HasMember("GridHaloSize")) GridHaloSize = doc["GridHaloSize"].GetInt();
     if(doc.HasMember("nPartitions")) nPartitions = doc["nPartitions"].GetInt();
+
+    if(doc.HasMember("ExtraSpaceForIncomingPoints")) ExtraSpaceForIncomingPoints = doc["ExtraSpaceForIncomingPoints"].GetDouble();
+
 
     ComputeCamClayParams2();
     ComputeHelperVariables();

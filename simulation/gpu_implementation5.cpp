@@ -119,7 +119,7 @@ void GPU_Implementation5::g2p(const bool recordPQ, const bool enablePointTransfe
     for(GPU_Partition &p : partitions)
     {
         p.g2p(recordPQ, enablePointTransfer);
-        cudaError_t err = cudaEventRecord(p.event_60_utility_data_transferred, p.streamCompute);
+        cudaError_t err = cudaEventRecord(p.event_50_g2p_completed, p.streamCompute);
         if(err != cudaSuccess) throw std::runtime_error("g2p cudaEventRecord");
     }
 }
@@ -127,19 +127,17 @@ void GPU_Implementation5::g2p(const bool recordPQ, const bool enablePointTransfe
 void GPU_Implementation5::receive_points()
 {
     cudaError_t err;
-
     for(int i=0;i<partitions.size();i++)
     {
         GPU_Partition &p = partitions[i];
         err = cudaSetDevice(p.Device);
         if(err != cudaSuccess) throw std::runtime_error("RP cudaSetDevice");
-        err = cudaEventSynchronize(p.event_60_utility_data_transferred);
+
+        err = cudaEventSynchronize(p.event_50_g2p_completed); // unfortunately, we must wait until host_utility_data populates
         if(err != cudaSuccess) throw std::runtime_error("RP cudaEventSynchronize");
-
-        //        err = cudaStreamSynchronize(p.streamCompute);
-        if(err != cudaSuccess) throw std::runtime_error("RP cudaStreamSynchronize");
-
         p.nPts_disabled += (p.getRightBufferCount()+p.getLeftBufferCount());
+
+
         if(i!=(partitions.size()-1))
         {
             // send buffer to the right
@@ -165,7 +163,6 @@ void GPU_Implementation5::receive_points()
             if(count != 0)
             {
                 err = cudaMemcpyPeerAsync(dst_point_buffer, pprev.Device, src_point_buffer, p.Device, count, p.streamCompute);
-                //                err = cudaMemcpyAsync(dst_point_buffer, src_point_buffer, count, cudaMemcpyDeviceToDevice, p.streamCompute);
                 if(err != cudaSuccess) throw std::runtime_error("RP copy buffer to the left");
             }
         }
@@ -344,7 +341,7 @@ void GPU_Implementation5::transfer_from_device()
         int capacity_required = offset_pts + p.nPts_partition;
         if(capacity_required > hssoa.capacity)
         {
-            spdlog::critical("transfer_from_device(): capacity {} exceeded ({}) when transferring P {}",
+            spdlog::error("transfer_from_device(): capacity {} exceeded ({}) when transferring P {}",
                              hssoa.capacity, capacity_required, p.PartitionID);
             throw std::runtime_error("transfer_from_device capacity exceeded");
         }
@@ -365,6 +362,43 @@ void GPU_Implementation5::transfer_from_device()
             spdlog::critical("P {}; error code {}", p.PartitionID, p.error_code);
             throw std::runtime_error("error code");
         }
+    }
+
+    int count = 0;
+    for(int i=0;i<hssoa.size;i++)
+    {
+        SOAIterator s = hssoa.begin()+i;
+        if(s->getDisabledStatus()) continue;
+        count++;
+    }
+
+    if(count != model->prms.nPtsTotal)
+    {
+        spdlog::error("tranfer: hssoa.size {}; nPts {}, count_active {}", hssoa.size, model->prms.nPtsTotal, count);
+
+        unsigned offset_pts = 0;
+        for(int i=0;i<partitions.size();i++)
+        {
+            GPU_Partition &p = partitions[i];
+            int capacity_required = offset_pts + p.nPts_partition;
+            int count_disabled_soa = 0;
+            for(int i=offset_pts; i<offset_pts+p.nPts_partition; i++)
+            {
+                SOAIterator s = hssoa.begin()+i;
+                if(s->getDisabledStatus())
+                {
+                    std::cout << i << ' ';
+                    count_disabled_soa++;
+                }
+            }
+            std::cout << '\n';
+            offset_pts += p.nPts_partition;
+            spdlog::error("P{}: size {}; disabled {}; disabled_soa {}",
+                          p.PartitionID, p.nPts_partition, p.nPts_disabled, count_disabled_soa);
+        }
+
+
+        throw std::runtime_error("transfer_from_device(): active point count mismatch");
     }
 
     if(transfer_completion_callback) transfer_completion_callback();

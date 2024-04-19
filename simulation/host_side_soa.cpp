@@ -181,7 +181,7 @@ void ProxyPoint::setPartition(uint8_t PartitionID)
 
     long long _pid = (long long)PartitionID;
     _pid <<= 24;
-    val &= 0xffffffll;
+    val &= 0xffffffff00ffffffll;
     val |= _pid;
 
     long long *ptr;
@@ -242,7 +242,7 @@ bool ProxyPoint::getDisabledStatus()
         dval = data[icy::SimParams::idx_utility_data];
     }
     long long val = *reinterpret_cast<long long*>(&dval);
-    return (val & 0x20000);
+    return (val & 0x20000ll) == 0x20000ll;
 }
 
 uint16_t ProxyPoint::getGrain()

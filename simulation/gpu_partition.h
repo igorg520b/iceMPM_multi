@@ -63,7 +63,7 @@ __device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p);
 __device__ Eigen::Matrix2d KirchhoffStress_Wolper(const Eigen::Matrix2d &F);
 
 __device__ void ComputePQ(icy::Point &p, const double &kappa, const double &mu);
-__device__ void GetParametersForGrain(short grain, double &pmin, double &pmax, double &qmax, double &beta, double &mSq);
+__device__ void GetParametersForGrain(short grain, double &pmin, double &pmax, double &qmax, double &beta, double &mSq, double &pmin2);
 
 __device__ Eigen::Vector2d dev_d(Eigen::Vector2d Adiag);
 __device__ Eigen::Matrix2d dev(Eigen::Matrix2d A);
@@ -107,7 +107,6 @@ struct GPU_Partition
     double *getHaloReceiveAddress(int whichHalo, int whichGridArray);
     int getLeftBufferCount() {return host_side_utility_data[idx_transfer_to_left];}
     int getRightBufferCount() {return host_side_utility_data[idx_transfer_to_right];}
-//    int getAddedPtsCount() {return host_side_utility_data[idx_points_added_to_soa];}
     int getMaxDeviationValue() {return host_side_utility_data[idx_pts_max_extent];}
 
     // host-side data
@@ -132,7 +131,6 @@ struct GPU_Partition
     cudaEvent_t event_30_halo_accepted;
     cudaEvent_t event_40_grid_updated;
     cudaEvent_t event_50_g2p_completed;
-    cudaEvent_t event_60_utility_data_transferred;
     cudaEvent_t event_70_pts_sent;
     cudaEvent_t event_80_pts_accepted;
 
@@ -155,7 +153,6 @@ struct GPU_Partition
     float timing_20_acceptHalo;
     float timing_30_updateGrid;
     float timing_40_G2P;
-    float timing_50_transferUtilityData;
     float timing_60_ptsSent;
     float timing_70_ptsAccepted;
     float timing_stepTotal;
