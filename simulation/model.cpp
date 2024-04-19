@@ -7,6 +7,11 @@ icy::Model::Model()
 {
     log_timing = spdlog::basic_logger_mt("timings", "logs/timings.log", true);
     spdlog::get("timings")->set_pattern("[%H:%M:%S],%v");
+
+    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/multisink.txt", true);
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    auto lg = std::make_shared<spdlog::logger>("multi_sink", spdlog::sinks_init_list({console_sink, file_sink}));
+    spdlog::set_default_logger(lg);
     spdlog::set_pattern("%v");
 
     prms.Reset();
@@ -66,8 +71,8 @@ bool icy::Model::Step()
     prms.SimulationStep += count_unupdated_steps;
     if(max_pt_deviation > prms.GridHaloSize/2) prms.PointTransferFrequency++; // transfer points more often if any risk
 
-    spdlog::info("{:^2s} {:^8s} {:^8s} {:^7s} {:^3s} {:^3s} | {:^5s} {:^5s} {:^5s} | {:^5s} {:^5s} {:^5s} {:^5s} {:^5s} | {:^6s}",
-                 "P",    "pts",  "free", "dis","msn", "mdv", "p2g",  "s2",  "S12",     "u",  "g2p", "psnt", "prcv","S36", "tot");
+    spdlog::info("{:^3s} {:^8s} {:^8s} {:^7s} {:^3s} {:^3s} | {:^5s} {:^5s} {:^5s} | {:^5s} {:^5s} {:^5s} {:^5s} {:^5s} | {:^6s}",
+                 "P-D",    "pts",  "free", "dis","msn", "mdv", "p2g",  "s2",  "S12",     "u",  "g2p", "psnt", "prcv","S36", "tot");
     bool rebalance = false;
     for(GPU_Partition &p : gpu.partitions)
     {
@@ -77,8 +82,8 @@ bool icy::Model::Step()
         if(freeSpacePercentage < prms.RebalanceThresholdFreeSpaceRemaining) rebalance = true;
         if(disabledPercentage > prms.RebalanceThresholdDisabledPercentage) rebalance = true;
 
-        spdlog::info("{:>2} {:>8} {:>8} {:>7} {:>3} {:>3} | {:>5.1f} {:>5.1f} {:>5.1f} | {:>5.1f} {:>5.1f} {:>5.1f} {:5.1f} {:5.1f} | {:>6.1f}",
-                     p.PartitionID, p.nPts_partition, (p.nPtsPitch-p.nPts_partition), p.nPts_disabled, p.max_pts_sent, p.max_pt_deviation,
+        spdlog::info("{:>1}-{:>1} {:>8} {:>8} {:>7} {:>3} {:>3} | {:>5.1f} {:>5.1f} {:>5.1f} | {:>5.1f} {:>5.1f} {:>5.1f} {:5.1f} {:5.1f} | {:>6.1f}",
+                     p.PartitionID, p.Device, p.nPts_partition, (p.nPtsPitch-p.nPts_partition), p.nPts_disabled, p.max_pts_sent, p.max_pt_deviation,
                      p.timing_10_P2GAndHalo, p.timing_20_acceptHalo, (p.timing_10_P2GAndHalo + p.timing_20_acceptHalo),
                      p.timing_30_updateGrid, p.timing_40_G2P, p.timing_60_ptsSent, p.timing_70_ptsAccepted,
                      (p.timing_30_updateGrid + p.timing_40_G2P + p.timing_60_ptsSent + p.timing_70_ptsAccepted),
