@@ -1,8 +1,10 @@
 {
 "InputRawPoints":"geometries_2d/2d_70k.h5",
+"nPartitions":4,
+"GridHaloSize":8,
 
-"ParticleViewSize":4.1,
 "InitialTimeStep":1.0e-5,
+"ParticleViewSize":3.1,
 "GridX":256,
 "GridY":110,
 "GridXDimension":3.3,
@@ -22,11 +24,9 @@
 "IndVelocity":0.2,
 "IndDepth":0.101,
 
-"SortPointsByGridCell":1,
 "tpb_P2G":256,
 "tpb_Upd":512,
-"tpb_G2P":128,
-"UseWarpLevelReduction":0
+"tpb_G2P":128
 }
 
 

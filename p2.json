@@ -1,8 +1,11 @@
 {
 "InputRawPoints":"geometries_2d/2d_250k.h5",
+"nPartitions":8,
+"GridHaloSize":12,
+"ExtraSpaceForIncomingPoints":0.2,
 
-"ParticleViewSize":2.1,
 "InitialTimeStep":5.0e-6,
+"ParticleViewSize":1.6,
 "GridX":512,
 "GridY":220,
 "GridXDimension":3.3,
@@ -10,7 +13,9 @@
 "YoungsModulus":5.0e8,
 "IceCompressiveStrength":100e6,
 "IceTensileStrength":10e6,
-"IceShearStrength":4.5e6,
+"IceTensileStrength2":10e6,
+"IceShearStrength":7e6,
+"IceTensileStrength2":10e6,
 "DP_phi":70,
 "DP_threshold_p":1e3,
 
@@ -22,11 +27,9 @@
 "IndVelocity":0.2,
 "IndDepth":0.101,
 
-"SortPointsByGridCell":1,
 "tpb_P2G":256,
 "tpb_Upd":512,
-"tpb_G2P":128,
-"UseWarpLevelReduction":0
+"tpb_G2P":128
 }
 
 
