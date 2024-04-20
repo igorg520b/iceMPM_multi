@@ -233,12 +233,22 @@ void GPU_Implementation5::initialize_and_enable_peer_access()
     {
         err = cudaSetDevice(0);
         if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaSetDevice");
+        spdlog::info("cudaDeviceEnablePeerAccess(1, 0);");
         err = cudaDeviceEnablePeerAccess(1, 0);
-        if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+        if(err != cudaSuccess)
+        {
+            spdlog::error("err {}", err);
+            throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+        }
         err = cudaSetDevice(1);
         if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaSetDevice");
+        spdlog::info("cudaDeviceEnablePeerAccess(0, 0);");
         err = cudaDeviceEnablePeerAccess(0, 0);
-        if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+        if(err != cudaSuccess)
+        {
+            spdlog::error("err {}", err);
+            throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+        }
     }
     else if(deviceCount > 2)
     {
@@ -247,9 +257,17 @@ void GPU_Implementation5::initialize_and_enable_peer_access()
             err = cudaSetDevice(i);
             if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaSetDevice");
             err = cudaDeviceEnablePeerAccess((i+1)%deviceCount, 0);
-            if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+            if(err != cudaSuccess)
+            {
+                spdlog::error("err {}", err);
+                throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+            }
             err = cudaDeviceEnablePeerAccess((i-1+deviceCount)%deviceCount, 0);
-            if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+            if(err != cudaSuccess)
+            {
+                spdlog::error("err {}", err);
+                throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+            }
         }
     }
 }
