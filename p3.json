@@ -2,6 +2,7 @@
 "InputRawPoints":"geometries_2d/2d_1mc.h5",
 "nPartitions":4,
 "GridHaloSize":10,
+"ExtraSpaceForIncomingPoints":0.2,
 
 "InitialTimeStep":2.0e-6,
 "ParticleViewSize":1.1,
@@ -12,7 +13,8 @@
 "YoungsModulus":5.0e8,
 "IceCompressiveStrength":100e6,
 "IceTensileStrength":10e6,
-"IceShearStrength":4.5e6,
+"IceShearStrength":7e6,
+"IceTensileStrength2":10e6, 
 "DP_phi":70,
 "DP_threshold_p":1e3,
 

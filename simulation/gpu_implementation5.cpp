@@ -228,46 +228,30 @@ void GPU_Implementation5::initialize_and_enable_peer_access()
         GPU_Partition &p = partitions[i];
         p.initialize(i%deviceCount, i);
     }
-/*
-    for(int i=0;i<nPartitions;i++)
+
+    if(deviceCount == 2)
     {
-        GPU_Partition &p = partitions[i];
-        err = cudaSetDevice(p.Device);
+        err = cudaSetDevice(0);
         if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaSetDevice");
-
-        if(i!=0)
+        err = cudaDeviceEnablePeerAccess(1, 0);
+        if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+        err = cudaSetDevice(1);
+        if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaSetDevice");
+        err = cudaDeviceEnablePeerAccess(0, 0);
+        if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+    }
+    else if(deviceCount > 2)
+    {
+        for(int i=0;i<deviceCount;i++)
         {
-            GPU_Partition &pprev = partitions[i-1];
-            // enable access to device on the left
-            if(p.Device != pprev.Device)
-            {
-                int canAccess;
-                err = cudaDeviceCanAccessPeer(&canAccessPeer, p.Device,  )
-
-                err = cudaDeviceEnablePeerAccess(pprev.Device, 0);
-                if(err != cudaSuccess)
-                {
-                    spdlog::error("P{}: err {}; pprev.Device {} ; p.Device {}", p.PartitionID, err, pprev.Device, p.Device );
-                    throw std::runtime_error("GPU_Implementation5::device_allocate_arrays() cudaDeviceEnablePeerAccess L");
-                }
-            }
-        }
-        if(i!=nPartitions-1)
-        {
-            GPU_Partition &pnxt = partitions[i+1];
-            // enable access to device on the right
-            if(p.Device != pnxt.Device)
-            {
-                err = cudaDeviceEnablePeerAccess(pnxt.Device, 0);
-                if(err != cudaSuccess)
-                {
-                    spdlog::error("P{}: err {}; pnxt.Device {} ; p.Device {}", p.PartitionID, err, pnxt.Device, p.Device);
-                    throw std::runtime_error("GPU_Implementation5::device_allocate_arrays() cudaDeviceEnablePeerAccess R");
-                }
-            }
+            err = cudaSetDevice(i);
+            if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaSetDevice");
+            err = cudaDeviceEnablePeerAccess((i+1)%deviceCount, 0);
+            if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
+            err = cudaDeviceEnablePeerAccess((i-1+deviceCount)%deviceCount, 0);
+            if(err != cudaSuccess) throw std::runtime_error("initialize_and_enable_peer_access cudaDeviceEnablePeerAccess");
         }
     }
-*/
 }
 
 
