@@ -7,6 +7,7 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcudafe --diag_suppress=esa_on_defaul
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 option(BUILD_GUI_VERSION "Build the Qt version" OFF)
+option(BUILD_GENERATOR "Build the tool that generates the point cloud" OFF)
 
 if(BUILD_GUI_VERSION)
     set(CMAKE_AUTOUIC ON)
@@ -204,3 +205,68 @@ vtk_module_autoinit(
 
 endif()
 
+# generator of the input file
+
+if(BUILD_GENERATOR)
+
+    find_package(VTK 9.1 REQUIRED COMPONENTS
+      CommonColor
+      CommonCore
+      FiltersCore
+      FiltersSources
+      FiltersGeometry
+      FiltersGeneral
+      FiltersModeling
+      InteractionStyle
+      RenderingContextOpenGL2
+      RenderingCore
+      RenderingFreeType
+      RenderingGL2PSOpenGL2
+      RenderingOpenGL2
+      IOGeometry
+      RenderingAnnotation
+      RenderingLabel
+      IOImage
+      IOXML
+      ViewsQt
+      CommonDataModel
+      CommonTransforms
+    )
+
+add_executable(GrainIdentifier
+    generator/main.cpp
+    generator/mainwindow.cpp
+    generator/mainwindow.h
+    generator/mainwindow.ui
+
+    generator/grainprocessor.h
+    generator/grainprocessor.cpp
+    generator/vtkrepresentation.h
+    generator/vtkrepresentation.cpp
+    generator/bvh/bvhn.cpp
+    generator/bvh/bvhn.h
+    generator/bvh/kdop24.cpp
+    generator/bvh/kdop24.h
+    generator/bvh/SimplePool.h
+    generator/2d/grainprocessor2d.h
+    generator/2d/grainprocessor2d.cpp
+    generator/2d/bvh2d/bvhn2d.h
+    generator/2d/bvh2d/bvhn2d.cpp
+    generator/2d/bvh2d/kdop8.h
+    generator/2d/bvh2d/kdop8.cpp
+)
+
+target_compile_options(GrainIdentifier PRIVATE -fopenmp -Wno-stringop-overflow -Wno-invalid-offsetof)
+target_link_libraries(GrainIdentifier PRIVATE gomp)
+
+target_link_libraries(GrainIdentifier PRIVATE spdlog::spdlog)
+target_link_libraries(GrainIdentifier PRIVATE ${HDF5_LIBRARIES})
+target_link_libraries(GrainIdentifier PRIVATE ${VTK_LIBRARIES})
+target_link_libraries(GrainIdentifier PRIVATE Eigen3::Eigen)
+target_link_libraries(GrainIdentifier PRIVATE gmsh)
+
+target_include_directories(GrainIdentifier PRIVATE ${HDF5_INCLUDE_DIRS})
+target_include_directories(GrainIdentifier PRIVATE "/home/s2/Projects-other/gmsh/api")
+target_include_directories(GrainIdentifier PRIVATE generator/bvh generator/poisson_disk_sampling generator/2d generator/2d/bvh2d)
+
+endif()
