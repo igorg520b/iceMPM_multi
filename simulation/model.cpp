@@ -5,8 +5,10 @@
 
 icy::Model::Model()
 {
-    log_timing = spdlog::basic_logger_mt("timings", "logs/timings.log", true);
-    spdlog::get("timings")->set_pattern("[%H:%M:%S],%v");
+    log_timing = spdlog::basic_logger_mt("timings", "logs/timings.csv", true);
+//    spdlog::get("timings")->set_pattern("[%H:%M:%S],%v");
+
+    log_indenter_force = spdlog::basic_logger_mt("indenter_force", "logs/indenter_force.csv", true);
 
     auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/multisink.txt", true);
     auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -69,6 +71,9 @@ bool icy::Model::Step()
                     max_pt_deviation, prms.PointTransferFrequency);
     prms.SimulationTime = simulation_time;
     prms.SimulationStep += count_unupdated_steps;
+    gpu.indenter_force /= (double)count_unupdated_steps;
+    spdlog::get("indenter_force")->info("{},{},{},{}",prms.SimulationTime,gpu.indenter_force.x(), gpu.indenter_force.y(), gpu.indenter_force.norm());
+
     if(max_pt_deviation > prms.GridHaloSize/2) prms.PointTransferFrequency++; // transfer points more often if any risk
 
     spdlog::info("{:^3s} {:^8s} {:^8s} {:^7s} {:^3s} {:^3s} | {:^5s} {:^5s} {:^5s} | {:^5s} {:^5s} {:^5s} {:^5s} {:^5s} | {:^6s}",

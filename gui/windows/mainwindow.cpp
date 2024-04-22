@@ -116,6 +116,14 @@ MainWindow::MainWindow(QWidget *parent)
             QByteArray ba = var.toByteArray();
             memcpy(representation.ranges, ba.constData(), ba.size());
         }
+
+        var = settings.value("take_screenshots");
+        if(!var.isNull())
+        {
+            bool b = var.toBool();
+            ui->actionTake_Screenshots->setChecked(b);
+        }
+
 /*
         var = settings.value("lastParameterFile");
         if(!var.isNull())
@@ -214,6 +222,8 @@ void MainWindow::quit_triggered()
     QList<int> szs = splitter->sizes();
     settings.setValue("splitter_size_0", szs[0]);
     settings.setValue("splitter_size_1", szs[1]);
+
+    settings.setValue("take_screenshots", ui->actionTake_Screenshots->isChecked());
     QApplication::quit();
 }
 
@@ -292,7 +302,7 @@ void MainWindow::simulation_data_ready()
     updateGUI();
 //    snapshot.SaveSnapshot(outputDirectory);
 //    snapshot.SavePQ(outputDirectory);
-//    if(ui->actionTake_Screenshots->isChecked())
+    if(ui->actionTake_Screenshots->isChecked())
         screenshot();
     model.UnlockCycleMutex();
 }

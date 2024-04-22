@@ -54,6 +54,7 @@ private:
     std::ofstream logCycleStats;
     bool abortRequested;
     std::shared_ptr<spdlog::logger> log_timing;
+    std::shared_ptr<spdlog::logger> log_indenter_force;
 };
 
 #endif

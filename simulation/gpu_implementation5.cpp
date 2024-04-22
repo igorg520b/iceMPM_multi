@@ -79,6 +79,14 @@ void GPU_Implementation5::p2g()
 
 void GPU_Implementation5::receive_halos()
 {
+    if(partitions.size() == 1)
+    {
+        GPU_Partition &p = partitions.front();
+        cudaError_t err = cudaEventRecord(p.event_30_halo_accepted, p.streamCompute);
+        if(err != cudaSuccess) throw std::runtime_error("receive_halos event");
+        return;
+    }
+
     cudaError_t err;
     for(int i=0;i<partitions.size();i++)
     {
@@ -369,6 +377,7 @@ void GPU_Implementation5::transfer_from_device()
     hssoa.size = offset_pts;
 
     // wait until everything is copied to host
+    indenter_force.setZero();
     for(int i=0;i<partitions.size();i++)
     {
         GPU_Partition &p = partitions[i];
@@ -378,6 +387,12 @@ void GPU_Implementation5::transfer_from_device()
         {
             spdlog::critical("P {}; error code {}", p.PartitionID, p.error_code);
             throw std::runtime_error("error code");
+        }
+
+        for(int j=0; j<model->prms.n_indenter_subdivisions; j++)
+        {
+            indenter_force.x() += p.host_side_indenter_force_accumulator[j*2+0];
+            indenter_force.y() += p.host_side_indenter_force_accumulator[j*2+1];
         }
     }
 
@@ -397,7 +412,6 @@ void GPU_Implementation5::transfer_from_device()
         for(int i=0;i<partitions.size();i++)
         {
             GPU_Partition &p = partitions[i];
-            int capacity_required = offset_pts + p.nPts_partition;
             int count_disabled_soa = 0;
             for(int i=offset_pts; i<offset_pts+p.nPts_partition; i++)
             {
