@@ -24,18 +24,6 @@ struct icy::Point
     Eigen::Vector2d vSigma, vSigmaSquared, v_s_hat_tr;
 
     long long utility_data;
-//    uint8_t crushed;
-
-    void Reset();
-/*    void TransferToBuffer(double *buffer, const int pitch, const int point_index) const;  // distribute to SOA
-    static Eigen::Vector2d getPos(const double *buffer, const int pitch, const int point_index);
-    static uint8_t getCrushedStatus(const double *buffer, const int pitch, const int point_index);
-
-    static double getJp_inv(const double *buffer, const int pitch, const int point_index);
-    static short getGrain(const double *buffer, const int pitch, const int point_index);
-
-    static std::pair<double,double> getPQ(const double *buffer, const int pitch, const int point_index);
-*/
 };
 
 

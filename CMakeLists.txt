@@ -66,7 +66,7 @@ else()
     target_link_libraries(cmm PRIVATE spdlog::spdlog)
 endif()
 
-target_include_directories(cmm PRIVATE simulation libraries/thinks/poisson_disk_sampling/)
+target_include_directories(cmm PRIVATE simulation)
 target_link_libraries(cmm PRIVATE Eigen3::Eigen)
 
 # HDF5

@@ -54,7 +54,6 @@ __device__ void PreparePointForTransfer(const int pt_idx, const int index_in_tra
                                         const double *buffer_pts);
 
 
-__device__ Eigen::Matrix2d polar_decomp_R(const Eigen::Matrix2d &val);
 __device__ void svd(const double a[4], double u[4], double sigma[2], double v[4]);
 __device__ void svd2x2(const Eigen::Matrix2d &mA, Eigen::Matrix2d &mU, Eigen::Vector2d &mS, Eigen::Matrix2d &mV);
 
@@ -74,7 +73,6 @@ struct GPU_Partition
     // these are indices in utility_data array
     constexpr static int idx_transfer_to_left = 0;
     constexpr static int idx_transfer_to_right = 1;
-//    constexpr static int idx_points_added_to_soa = 2;
     constexpr static int idx_pts_max_extent = 2;
     constexpr static size_t utility_data_size = 3;
 

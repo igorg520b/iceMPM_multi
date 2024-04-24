@@ -22,10 +22,7 @@ icy::Model::Model()
     spdlog::info("Model constructor");
 }
 
-icy::Model::~Model()
-{
-    logCycleStats.close();
-}
+icy::Model::~Model() {}
 
 bool icy::Model::Step()
 {
@@ -132,8 +129,6 @@ void icy::Model::Reset()
     prms.SimulationStep = 0;
     prms.SimulationTime = 0;
     SyncTopologyRequired = true;
-    if(logCycleStats.is_open()) logCycleStats.close();
-    logCycleStats.open("cycle_stats.log", std::ios_base::trunc | std::ios_base::out);
 }
 
 void icy::Model::Prepare()

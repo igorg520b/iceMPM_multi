@@ -476,18 +476,6 @@ void GPU_Implementation5::reset_indenter_force_accumulator()
 
 /*
 
-// ==============================  kernels  ====================================
-
-__device__ Matrix2d polar_decomp_R(const Matrix2d &val)
-{
-    // polar decomposition
-    // http://www.cs.cornell.edu/courses/cs4620/2014fa/lectures/polarnotes.pdf
-    double th = atan2(val(1,0) - val(0,1), val(0,0) + val(1,1));
-    Matrix2d result;
-    result << cosf(th), -sinf(th), sinf(th), cosf(th);
-    return result;
-}
-
 // ========================================= initialization and kernel execution
 
 void CUDART_CB GPU_Implementation5::callback_from_stream(cudaStream_t stream, cudaError_t status, void *userData)
