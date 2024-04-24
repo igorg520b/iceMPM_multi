@@ -80,8 +80,7 @@ void HostSideSOA::InitializeBlock()
         ProxyPoint &p = *it;
         p.setValue(icy::SimParams::idx_Jp_inv,1);
         for(int i=0; i<icy::SimParams::dim; i++)
-            for(int j=0; j<icy::SimParams::dim; j++)
-                p.setValue(icy::SimParams::Fe00+i*2+j, identity(i,j));
+                p.setValue(icy::SimParams::Fe00+i*2+i, 1.0);
     }
 
 }
