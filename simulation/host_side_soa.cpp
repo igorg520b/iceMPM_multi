@@ -167,15 +167,7 @@ void ProxyPoint::setValue(size_t valueIdx, double value)
 void ProxyPoint::setPartition(uint8_t PartitionID)
 {
     // retrieve the existing value
-    double dval;
-    if(isReference)
-    {
-        dval = soa[pos + pitch*icy::SimParams::idx_utility_data];
-    }
-    else
-    {
-        dval = data[icy::SimParams::idx_utility_data];
-    }
+    double dval = getValue(icy::SimParams::idx_utility_data);
     long long val = *reinterpret_cast<long long*>(&dval);
 
     long long _pid = (long long)PartitionID;
@@ -198,15 +190,7 @@ void ProxyPoint::setPartition(uint8_t PartitionID)
 
 uint8_t ProxyPoint::getPartition()
 {
-    double dval;
-    if(isReference)
-    {
-        dval = soa[pos + pitch*icy::SimParams::idx_utility_data];
-    }
-    else
-    {
-        dval = data[icy::SimParams::idx_utility_data];
-    }
+    double dval = getValue(icy::SimParams::idx_utility_data);
     long long val = *reinterpret_cast<long long*>(&dval);
     val >>= 24;
     return (uint8_t)(val & 0xff);
@@ -216,45 +200,21 @@ uint8_t ProxyPoint::getPartition()
 
 bool ProxyPoint::getCrushedStatus()
 {
-    double dval;
-    if(isReference)
-    {
-        dval = soa[pos + pitch*icy::SimParams::idx_utility_data];
-    }
-    else
-    {
-        dval = data[icy::SimParams::idx_utility_data];
-    }
+    double dval = getValue(icy::SimParams::idx_utility_data);
     long long val = *reinterpret_cast<long long*>(&dval);
     return (val & 0x10000);
 }
 
 bool ProxyPoint::getDisabledStatus()
 {
-    double dval;
-    if(isReference)
-    {
-        dval = soa[pos + pitch*icy::SimParams::idx_utility_data];
-    }
-    else
-    {
-        dval = data[icy::SimParams::idx_utility_data];
-    }
+    double dval = getValue(icy::SimParams::idx_utility_data);
     long long val = *reinterpret_cast<long long*>(&dval);
     return (val & 0x20000ll) == 0x20000ll;
 }
 
 uint16_t ProxyPoint::getGrain()
 {
-    double dval;
-    if(isReference)
-    {
-        dval = soa[pos + pitch*icy::SimParams::idx_utility_data];
-    }
-    else
-    {
-        dval = data[icy::SimParams::idx_utility_data];
-    }
+    double dval = getValue(icy::SimParams::idx_utility_data);
     long long val = *reinterpret_cast<long long*>(&dval);
     return (val & 0xffff);
 }
