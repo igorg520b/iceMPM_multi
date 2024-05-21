@@ -52,6 +52,7 @@ add_executable(cmm
     simulation/gpu_partition.cu
     simulation/host_side_soa.h
     simulation/host_side_soa.cpp
+    simulation/kernels.cuh
 )
 
 set_target_properties(cmm PROPERTIES CUDA_ARCHITECTURES "80")
@@ -140,6 +141,7 @@ if(BUILD_GUI_VERSION)
         simulation/host_side_soa.cpp
         simulation/gpu_partition.h
         simulation/gpu_partition.cu
+        simulation/kernels.cuh
 
     )
 

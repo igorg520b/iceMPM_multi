@@ -23,10 +23,13 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
 
 
 // receive grid data from adjacent partitions
-__global__ void partition_kernel_receive_halos(const int haloElementCount, const int gridX, const int gridX_offset,
-                                               const int pitch_grid, double *buffer_grid,
-const double *halo0, const double *halo1);
+__global__ void partition_kernel_receive_halos_left(const int haloElementCount, const int gridX_partition,
+                                                    const int pitch_grid, double *buffer_grid,
+                                                    const double *halo0, const double *halo1);
 
+__global__ void partition_kernel_receive_halos_right(const int haloElementCount, const int gridX_partition,
+                                                    const int pitch_grid, double *buffer_grid,
+                                                    const double *halo0, const double *halo1);
 
 __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
                                               const int nNodes, const int gridX_offset, const int pitch_grid,
@@ -101,8 +104,6 @@ struct GPU_Partition
     void normalize_timings(int cycles);
 
     // helper functions
-    double *getHaloAddress(int whichHalo, int whichGridArray);
-    double *getHaloReceiveAddress(int whichHalo, int whichGridArray);
     int getLeftBufferCount() {return host_side_utility_data[idx_transfer_to_left];}
     int getRightBufferCount() {return host_side_utility_data[idx_transfer_to_right];}
     int getMaxDeviationValue() {return host_side_utility_data[idx_pts_max_extent];}

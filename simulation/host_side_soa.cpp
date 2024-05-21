@@ -90,15 +90,7 @@ void HostSideSOA::InitializeBlock()
 ProxyPoint::ProxyPoint(const ProxyPoint &other)
 {
     isReference = false;
-    // local copy
-    if(other.isReference)
-    {
-        for(int i=0;i<nArrays;i++) data[i] = other.soa[other.pos + i*other.pitch];
-    }
-    else
-    {
-        for(int i=0;i<nArrays;i++) data[i] = other.data[i];
-    }
+    *this = other;
 }
 
 ProxyPoint& ProxyPoint::operator=(const ProxyPoint &other)
