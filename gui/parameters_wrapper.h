@@ -130,6 +130,10 @@ class ParamsWrapper : public QObject
     Q_PROPERTY(double haloSize READ getGridHaloSize NOTIFY propertyChanged)
     double getGridHaloSize() {return prms->GridHaloSize;}
 
+    Q_PROPERTY(double grainVariability READ getGrainVariability NOTIFY propertyChanged)
+    double getGrainVariability() {return prms->GrainVariability;}
+
+
 
 public:
     ParamsWrapper(icy::SimParams *p)

@@ -436,59 +436,6 @@ __device__ void ComputePQ(icy::Point &p, const double &kappa, const double &mu)
 }
 
 
-__device__ void Wolper_Drucker_Prager(icy::Point &p)
-{
-    const double &mu = gprms.mu;
-    const double &kappa = gprms.kappa;
-    const double &tan_phi = gprms.DP_tan_phi;
-    const double &DP_threshold_p = gprms.DP_threshold_p;
-
-    //    const double &pmin = -gprms.IceTensileStrength;
-    const double &pmax = gprms.IceCompressiveStrength;
-    const double &qmax = gprms.IceShearStrength;
-
-
-    if(p.p_tr < -DP_threshold_p || p.Jp_inv < 1)
-    {
-        // tear in tension or compress until original state
-        double p_new = -DP_threshold_p;
-        double Je_new = sqrt(-2.*p_new/kappa + 1.);
-        double sqrt_Je_new = sqrt(Je_new);
-
-        Vector2d vSigma_new(sqrt_Je_new,sqrt_Je_new); //= Vector2d::Constant(1.)*sqrt(Je_new);  //Matrix2d::Identity() * pow(Je_new, 1./(double)d);
-        p.Fe = p.U*vSigma_new.asDiagonal()*p.V.transpose();
-        p.Jp_inv *= Je_new/p.Je_tr;
-    }
-    else
-    {
-        double q_n_1;
-
-        if(p.p_tr > pmax)
-        {
-            q_n_1 = 0;
-        }
-        else
-        {
-            double q_from_dp = (p.p_tr+DP_threshold_p)*tan_phi;
-            q_n_1 = min(q_from_dp,qmax);
-            //            double q_from_failure_surface = 2*sqrt((pmax-p.p_tr)*(p.p_tr-pmin))*qmax/(pmax-pmin);
-            //            q_n_1 = min(q_from_failure_surface, q_from_dp);
-        }
-
-        if(p.q_tr >= q_n_1)
-        {
-            // project onto YS
-            double s_hat_n_1_norm = q_n_1/coeff1;
-            //Matrix2d B_hat_E_new = s_hat_n_1_norm*(pow(Je_tr,2./d)/mu)*s_hat_tr.normalized() + Matrix2d::Identity()*(SigmaSquared.trace()/d);
-            Vector2d vB_hat_E_new = s_hat_n_1_norm*(p.Je_tr/mu)*p.v_s_hat_tr.normalized() +
-                                    Vector2d::Constant(1.)*(p.vSigmaSquared.sum()/d);
-            Vector2d vSigma_new = vB_hat_E_new.array().sqrt().matrix();
-            p.Fe = p.U*vSigma_new.asDiagonal()*p.V.transpose();
-        }
-    }
-
-}
-
 
 __device__ void GetParametersForGrain(short grain, double &pmin, double &pmax, double &qmax, double &beta, double &mSq, double &pmin2)
 {
@@ -507,6 +454,25 @@ __device__ void GetParametersForGrain(short grain, double &pmin, double &pmax, d
 //    mSq = NACC_M*NACC_M;
     mSq = (4*qmax*qmax*(1+2*beta))/((pmax-pmin)*(pmax-pmin));
 }
+
+
+
+
+
+
+
+
+// deviatoric part of a diagonal matrix
+__device__ Vector2d dev_d(Vector2d Adiag)
+{
+    return Adiag - Adiag.sum()/2*Vector2d::Constant(1.);
+}
+
+__device__ Eigen::Matrix2d dev(Eigen::Matrix2d A)
+{
+    return A - A.trace()/2*Eigen::Matrix2d::Identity();
+}
+
 
 
 __device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p)
@@ -534,16 +500,55 @@ __device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p)
 
 
 
-
-
-// deviatoric part of a diagonal matrix
-__device__ Vector2d dev_d(Vector2d Adiag)
+__device__ void Wolper_Drucker_Prager(icy::Point &p)
 {
-    return Adiag - Adiag.sum()/2*Vector2d::Constant(1.);
-}
+    const double &mu = gprms.mu;
+    const double &kappa = gprms.kappa;
+    const double &tan_phi = gprms.DP_tan_phi;
+    const double &DP_threshold_p = gprms.DP_threshold_p;
 
-__device__ Eigen::Matrix2d dev(Eigen::Matrix2d A)
-{
-    return A - A.trace()/2*Eigen::Matrix2d::Identity();
-}
+    const double &pmax = gprms.IceCompressiveStrength;
+    const double &qmax = gprms.IceShearStrength;
 
+
+    if(p.p_tr < -DP_threshold_p || p.Jp_inv < 1)
+    {
+        // tear in tension or compress until original state
+        double p_new = -DP_threshold_p;
+        double Je_new = sqrt(-2.*p_new/kappa + 1.);
+        double sqrt_Je_new = sqrt(Je_new);
+
+        Vector2d vSigma_new(sqrt_Je_new,sqrt_Je_new); //= Vector2d::Constant(1.)*sqrt(Je_new);  //Matrix2d::Identity() * pow(Je_new, 1./(double)d);
+        p.Fe = p.U*vSigma_new.asDiagonal()*p.V.transpose();
+        p.Jp_inv *= Je_new/p.Je_tr;
+    }
+    else
+    {
+        double q_n_1;
+
+        if(p.p_tr > pmax)
+        {
+            q_n_1 = 0;
+        }
+        else
+        {
+            double q_from_dp = (p.p_tr+DP_threshold_p)*tan_phi;
+            //q_n_1 = min(q_from_dp,qmax);
+
+            const double pmin = -gprms.IceTensileStrength;
+            double q_from_failure_surface = 2*sqrt((pmax-p.p_tr)*(p.p_tr-pmin))*qmax/(pmax-pmin);
+            q_n_1 = min(q_from_failure_surface, q_from_dp);
+        }
+
+        if(p.q_tr >= q_n_1)
+        {
+            // project onto YS
+            double s_hat_n_1_norm = q_n_1/coeff1;
+            //Matrix2d B_hat_E_new = s_hat_n_1_norm*(pow(Je_tr,2./d)/mu)*s_hat_tr.normalized() + Matrix2d::Identity()*(SigmaSquared.trace()/d);
+            Vector2d vB_hat_E_new = s_hat_n_1_norm*(p.Je_tr/mu)*p.v_s_hat_tr.normalized() +
+                                    Vector2d::Constant(1.)*(p.vSigmaSquared.sum()/d);
+            Vector2d vSigma_new = vB_hat_E_new.array().sqrt().matrix();
+            p.Fe = p.U*vSigma_new.asDiagonal()*p.V.transpose();
+        }
+    }
+}
