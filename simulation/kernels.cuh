@@ -8,6 +8,7 @@ using namespace Eigen;
 
 constexpr double d = 2; // dimensions
 constexpr double coeff1 = 1.4142135623730950; // sqrt((6-d)/2.);
+constexpr double coeff1_inv = 0.7071067811865475;
 constexpr long long status_crushed = 0x10000;
 constexpr long long status_disabled = 0x20000;
 
@@ -299,7 +300,11 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePoint
     ComputePQ(p, kappa, mu);    // pre-computes USV, p, q, etc.
 
     if(!(p.utility_data & status_crushed)) CheckIfPointIsInsideFailureSurface(p);
-    if(p.utility_data & status_crushed) Wolper_Drucker_Prager(p);
+    if(p.utility_data & status_crushed)
+    {
+        ComputeSVD(p, kappa, mu);    // pre-computes USV, p, q, etc.
+        Wolper_Drucker_Prager(p);
+    }
 
     // distribute the values of p back into GPU memory: pos, velocity, BP, Fe, Jp_inv, PQ
     for(int i=0; i<icy::SimParams::dim; i++)
@@ -425,16 +430,24 @@ __device__ void svd2x2(const Matrix2d &mA, Matrix2d &mU, Vector2d &mS, Matrix2d 
     mV << V[0],V[1],V[2],V[3];
 }
 
-__device__ void ComputePQ(icy::Point &p, const double &kappa, const double &mu)
+__device__ void ComputeSVD(icy::Point &p, const double &kappa, const double &mu)
 {
     svd2x2(p.Fe, p.U, p.vSigma, p.V);
-    p.Je_tr = p.vSigma.prod();         // product of elements of vSigma (representation of diagonal matrix)
-    p.p_tr = -(kappa/2.) * (p.Je_tr*p.Je_tr - 1.);
     p.vSigmaSquared = p.vSigma.array().square().matrix();
     p.v_s_hat_tr = mu/p.Je_tr * dev_d(p.vSigmaSquared); //mu * pow(Je_tr,-2./d)* dev(SigmaSquared);
-    p.q_tr = coeff1*p.v_s_hat_tr.norm();
 }
 
+__device__ void ComputePQ(icy::Point &p, const double &kappa, const double &mu)
+{
+    Matrix2d &F = p.Fe;
+    p.Je_tr = F.determinant();
+    p.p_tr = -(kappa/2.) * (p.Je_tr*p.Je_tr - 1.);
+
+    double &J = p.Je_tr;
+
+    p.q_tr = coeff1*mu*(1./J)*dev(F*F.transpose()).norm();
+//    p.v_s_hat_tr = mu/p.Je_tr * dev_d(p.vSigmaSquared); //mu * pow(Je_tr,-2./d)* dev(SigmaSquared);
+}
 
 
 __device__ void GetParametersForGrain(short grain, double &pmin, double &pmax, double &qmax, double &beta, double &mSq, double &pmin2)
@@ -543,7 +556,7 @@ __device__ void Wolper_Drucker_Prager(icy::Point &p)
         if(p.q_tr >= q_n_1)
         {
             // project onto YS
-            double s_hat_n_1_norm = q_n_1/coeff1;
+            double s_hat_n_1_norm = q_n_1*coeff1_inv;
             //Matrix2d B_hat_E_new = s_hat_n_1_norm*(pow(Je_tr,2./d)/mu)*s_hat_tr.normalized() + Matrix2d::Identity()*(SigmaSquared.trace()/d);
             Vector2d vB_hat_E_new = s_hat_n_1_norm*(p.Je_tr/mu)*p.v_s_hat_tr.normalized() +
                                     Vector2d::Constant(1.)*(p.vSigmaSquared.sum()/d);

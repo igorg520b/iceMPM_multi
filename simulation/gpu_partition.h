@@ -64,6 +64,7 @@ __device__ void Wolper_Drucker_Prager(icy::Point &p);
 __device__ void CheckIfPointIsInsideFailureSurface(icy::Point &p);
 __device__ Eigen::Matrix2d KirchhoffStress_Wolper(const Eigen::Matrix2d &F);
 
+__device__ void ComputeSVD(icy::Point &p, const double &kappa, const double &mu);
 __device__ void ComputePQ(icy::Point &p, const double &kappa, const double &mu);
 __device__ void GetParametersForGrain(short grain, double &pmin, double &pmax, double &qmax, double &beta, double &mSq, double &pmin2);
 
