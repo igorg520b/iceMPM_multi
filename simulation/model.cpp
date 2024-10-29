@@ -43,7 +43,7 @@ bool icy::Model::Step()
         gpu.reset_grid();
         gpu.p2g();
         gpu.receive_halos();
-        gpu.update_nodes();
+        gpu.update_nodes(simulation_time);
         const bool isZeroStep = (prms.SimulationStep+count_unupdated_steps) % prms.UpdateEveryNthStep == 0;
         const bool enablePointTransfer = (prms.SimulationStep+count_unupdated_steps) % (prms.UpdateEveryNthStep/prms.PointTransferFrequency) == 0;
         gpu.g2p(isZeroStep, enablePointTransfer);

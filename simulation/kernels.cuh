@@ -147,10 +147,49 @@ __global__ void partition_kernel_receive_halos_right(const int haloElementCount,
 }
 
 
+__device__ __host__ double FreeSurfaceElevation(double simulation_time, double x)
+{
+    double waveAmplitude = simulation_time < 5 ? simulation_time : (10-simulation_time);
+    if(simulation_time > 10) waveAmplitude = 0;
+    waveAmplitude*=0.07;
+    double waveLength = 4.0;
+    double k = 2*icy::SimParams::pi/waveLength;
+    double omega = k*0.75; // angular frequency
+    waveAmplitude = min(waveAmplitude, 0.4);
+
+    return  0.6 + waveAmplitude*cos(k*x - omega*simulation_time);
+}
+
+__device__ __host__ double FreeSurfaceElevationPrime(double simulation_time, double x)
+{
+    double waveAmplitude = simulation_time < 5 ? simulation_time : (10-simulation_time);
+    if(simulation_time > 10) waveAmplitude = 0;
+    waveAmplitude*=0.07;
+    double waveLength = 4.0;
+    double k = 2*icy::SimParams::pi/waveLength;
+    double omega = k*0.75; // angular frequency
+    waveAmplitude = min(waveAmplitude, 0.4);
+
+    return waveAmplitude*sin(k*x - omega*simulation_time)*omega;
+}
+
+__device__ __host__ double FreeSurfaceHorizontalVelocity(double simulation_time, double x)
+{
+    double waveAmplitude = simulation_time < 5 ? simulation_time : (10-simulation_time);
+    if(simulation_time > 10) waveAmplitude = 0;
+    waveAmplitude*=0.07;
+    double waveLength = 4.0;
+    double k = 2*icy::SimParams::pi/waveLength;
+    double omega = k*0.75; // angular frequency
+    waveAmplitude = min(waveAmplitude, 0.4);
+
+    return waveAmplitude*cos(k*x - omega*simulation_time)*omega;
+}
 
 __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
                                               const int nNodes, const int gridX_offset, const int pitch_grid,
-                                              double *buffer_grid, double *indenter_force_accumulator)
+                                              double *buffer_grid, double *indenter_force_accumulator,
+                                              double simulation_time)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if(idx >= nNodes) return;
@@ -175,12 +214,74 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
     const Vector2d vco(ind_velocity,0);  // velocity of the collision object (indenter)
 
     Vector2i gi(idx/gridY+gridX_offset-halo, idx%gridY);   // integer x-y index of the grid node
+    Vector2d gnpos = gi.cast<double>()*cellsize;    // position of the grid node in the whole grid
+
     Vector2d velocity(vx, vy);
     velocity /= mass;
-    velocity[1] -= gprms.dt_Gravity;
+
+
+    const double x = gnpos.x();
+    const double y = gnpos.y();
+
+    const double wL = 0.6; // water level
+    const double np = 4;
+
+    double A = simulation_time < 5 ? simulation_time : (10-simulation_time);
+    if(simulation_time > 10) A = 0;
+    A*=0.07;
+    A = min(A, 0.4);
+
+    double waveLength = 4.0;
+    double k = 2*icy::SimParams::pi/waveLength;
+    double omega = k*0.75; // angular frequency
+
+    double gx = -(np/2)*A*k*sin(k*x- omega*simulation_time)*pow((y-wL-A*cos(k*x- omega*simulation_time)),np-1);
+    double gy = (np/2)*pow(y-wL-A*cos(k*x- omega*simulation_time), np-1);
+
+
+    const double attenuation_coeff1h = 1e-5;
+    const double attenuation_coeff2h = 1e-3;
+    const double attenuation_coeff1v = 1e-5;
+    const double attenuation_coeff2v = 1e-3;
+
+    Vector2d vel2(FreeSurfaceHorizontalVelocity(simulation_time, gnpos.x()),
+                  FreeSurfaceElevationPrime(simulation_time, gnpos.x()));
+    Vector2d vd = velocity-vel2;
+
+    double attenuation_coeff_h = attenuation_coeff1h + abs(vd[0]) * attenuation_coeff2h;
+    double attenuation_coeff_v = attenuation_coeff1v + abs(vd[1]) * attenuation_coeff2v;
+    attenuation_coeff_h = min(max(attenuation_coeff_h,0.),1.);
+    attenuation_coeff_v = min(max(attenuation_coeff_v,0.),1.);
+
+    velocity[0] = (1-attenuation_coeff_h)*velocity[0] + attenuation_coeff_h*vel2[0];
+    velocity[1] = (1-attenuation_coeff_v)*velocity[1] + attenuation_coeff_v*vel2[1];
+
+    velocity[0] -= dt*gx*1e6;
+    velocity[1] -= dt*gy*1e6;
+
+    const double waterLevel = FreeSurfaceElevation(simulation_time, gnpos.x());
+    if(gnpos.y() >= waterLevel)
+    {
+        velocity[1] -= gprms.dt_Gravity;
+    }
+
+/*
+    const double wLPrime = ;
+    const double horizVelocity = ;
+    else
+    {
+        const double water_density = 1000;
+
+
+
+        velocity[1] += gprms.dt_Gravity * (water_density/gprms.Density - 1.);
+    }
+*/
+
+
+
     if(velocity.squaredNorm() > vmax_squared) velocity = velocity.normalized()*vmax;
 
-    Vector2d gnpos = gi.cast<double>()*cellsize;    // position of the grid node in the whole grid
 
     // indenter
     Vector2d n = gnpos - indCenter;

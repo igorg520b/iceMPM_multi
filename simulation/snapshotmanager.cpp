@@ -67,7 +67,7 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     const double box_x = model->prms.GridXTotal*h;
     const double length = model->prms.xmax - model->prms.xmin;
     const double x_offset = (box_x - length)/2;
-    const double y_offset = 2*h;
+    const double y_offset = 2*h+0.55; // 0.5 offset is for buoyancy testing
 
     Eigen::Vector2d offset(x_offset, y_offset);
     model->gpu.hssoa.offsetBlock(offset);
@@ -87,6 +87,10 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
         model->prms.indenter_y = block_top + ht;
     else if(model->prms.SetupType == 1)
         model->prms.indenter_y = ceil(block_top/h)*h;
+
+    // for buoyancy testing
+    model->prms.indenter_x = model->prms.indenter_y = -1;
+
 
     model->prms.indenter_x_initial = model->prms.indenter_x;
     model->prms.indenter_y_initial = model->prms.indenter_y;

@@ -33,7 +33,8 @@ __global__ void partition_kernel_receive_halos_right(const int haloElementCount,
 
 __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
                                               const int nNodes, const int gridX_offset, const int pitch_grid,
-                                              double *_buffer_grid, double *indenter_force_accumulator);
+                                              double *_buffer_grid, double *indenter_force_accumulator,
+                                              double simulation_time);
 
 
 __global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePointTransfer,
@@ -72,6 +73,9 @@ __device__ Eigen::Vector2d dev_d(Eigen::Vector2d Adiag);
 __device__ Eigen::Matrix2d dev(Eigen::Matrix2d A);
 
 
+__device__ __host__ double FreeSurfaceElevation(double simulation_time, double x);
+
+
 struct GPU_Partition
 {
     // these are indices in utility_data array
@@ -95,7 +99,7 @@ struct GPU_Partition
     void reset_indenter_force_accumulator();
     void p2g();
     void receive_halos();   // neightbour halos were copied, but we need to incorporate them into the grid
-    void update_nodes();
+    void update_nodes(double simulation_time);
     void g2p(const bool recordPQ, const bool enablePointTransfer);
     void receive_points(int nFromLeft, int nFromRight);
 

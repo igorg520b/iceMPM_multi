@@ -1,6 +1,7 @@
 #include "vtk_representation.h"
 #include "model.h"
 #include "parameters_sim.h"
+#include "gpu_partition.h"
 //#include <omp.h>
 #include <algorithm>
 #include <iostream>
@@ -127,6 +128,18 @@ icy::VisualRepresentation::VisualRepresentation()
     txtprop->ShadowOff();
     txtprop->SetColor(0,0,0);
     actorText->SetDisplayPosition(500, 30);
+
+    // water level
+    water_points->SetNumberOfPoints(water_level_resolution);
+    polyLine->GetPointIds()->SetNumberOfIds(water_level_resolution);
+    for(int i=0;i<water_level_resolution;i++) polyLine->GetPointIds()->SetId(i,i);
+    water_cells->InsertNextCell(polyLine);
+    water_polydata->SetPoints(water_points);
+    water_polydata->SetLines(water_cells);
+    water_mapper->SetInputData(water_polydata);
+    actor_water->SetMapper(water_mapper);
+    actor_water->GetProperty()->SetColor(0.1,0.1,0.8);
+    actor_water->GetProperty()->SetLineWidth(2.5);
 }
 
 
@@ -190,6 +203,19 @@ void icy::VisualRepresentation::SynchronizeTopology()
 void icy::VisualRepresentation::SynchronizeValues()
 {
     model->accessing_point_data.lock();
+
+    double sim_time = model->prms.SimulationTime;
+    // water level
+    for(int i=0;i<water_level_resolution;i++)
+    {
+        double x = (double)i/water_level_resolution*model->prms.GridXDimension;
+        double y = FreeSurfaceElevation(model->prms.SimulationTime, x);
+        water_points->SetPoint(i, x, y, 0.);
+    }
+    water_points->Modified();
+//    polyLine->Modified();
+//    water_polydata->Modified();
+
 
     // spdlog::info("SynchronizeValues() npts {}", model->prms.nPtsTotal);
     double indenter_x = model->prms.indenter_x;

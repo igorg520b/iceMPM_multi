@@ -46,7 +46,7 @@ public:
 
     void p2g();
     void receive_halos();
-    void update_nodes();
+    void update_nodes(double simulation_time);
     void g2p(const bool recordPQ, const bool enablePointTransfer);
     void receive_points();
     void record_timings(const bool enablePointTransfer);

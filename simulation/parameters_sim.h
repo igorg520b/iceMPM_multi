@@ -100,6 +100,8 @@ public:
     int CellIdx(float x) { return (int)(x*cellsize_inv+0.5); }
     int PointCellIndex(float x, float y) { return CellIdx(x)*GridY + CellIdx(y);}
 
+
+
 };
 
 #endif

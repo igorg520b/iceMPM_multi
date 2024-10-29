@@ -112,11 +112,11 @@ void GPU_Implementation5::receive_halos()
 }
 
 
-void GPU_Implementation5::update_nodes()
+void GPU_Implementation5::update_nodes(double simulation_time)
 {
     for(GPU_Partition &p : partitions)
     {
-        p.update_nodes();
+        p.update_nodes(simulation_time);
         cudaError_t err = cudaEventRecord(p.event_40_grid_updated, p.streamCompute);
         if(err != cudaSuccess) throw std::runtime_error("update_nodes cudaEventRecord");
     }

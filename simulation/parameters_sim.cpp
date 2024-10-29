@@ -18,7 +18,7 @@ void icy::SimParams::Reset()
 
     PoissonsRatio = 0.3;
     Gravity = 9.81;
-    Density = 980;
+    Density = 916;
 
     IndDiameter = 0.324;
     IndVelocity = 0.2;

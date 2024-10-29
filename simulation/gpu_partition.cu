@@ -241,7 +241,7 @@ void GPU_Partition::p2g()
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("p2g kernel");
 }
 
-void GPU_Partition::update_nodes()
+void GPU_Partition::update_nodes(double simulation_time)
 {
     cudaSetDevice(Device);
     const int nGridNodes = prms->GridY * (GridX_partition + 2*prms->GridHaloSize);
@@ -251,7 +251,8 @@ void GPU_Partition::update_nodes()
     Eigen::Vector2d ind_center(prms->indenter_x, prms->indenter_y);
 
     partition_kernel_update_nodes<<<nBlocks, tpb, 0, streamCompute>>>(ind_center, nGridNodes, GridX_offset,
-                                                                      nGridPitch, grid_array, indenter_force_accumulator);
+                                                                      nGridPitch, grid_array, indenter_force_accumulator,
+                                                                      simulation_time);
     if(cudaGetLastError() != cudaSuccess) throw std::runtime_error("update_nodes");
 }
 

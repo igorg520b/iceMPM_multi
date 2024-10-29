@@ -61,6 +61,7 @@ public:
     vtkNew<vtkActor> actor_grid;
     vtkNew<vtkActor> actor_partitions;
     vtkNew<vtkActor> actor_indenter;
+    vtkNew<vtkActor> actor_water;
     vtkNew<vtkScalarBarActor> scalarBar;
 
     vtkNew<vtkTextActor> actorText;
@@ -89,6 +90,14 @@ private:
     vtkNew<vtkStructuredGrid> partitionsGrid;
     vtkNew<vtkDataSetMapper> partitions_grid_mapper;
     vtkNew<vtkPoints> partitions_grid_points;
+
+    // water surface
+    static constexpr int water_level_resolution = 500;
+    vtkNew<vtkPoints> water_points;
+    vtkNew<vtkCellArray> water_cells;
+    vtkNew<vtkPolyLine> polyLine;
+    vtkNew<vtkPolyData> water_polydata;
+    vtkNew<vtkPolyDataMapper> water_mapper;
 
     static constexpr float lutArrayMPMColors[101][3] =
     {{0.25098, 0.556863, 0.756863}, {0.245961, 0.547294,
