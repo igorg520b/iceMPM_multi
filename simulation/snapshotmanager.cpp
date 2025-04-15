@@ -53,6 +53,10 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     float volume;
     att_volume.read(H5::PredType::NATIVE_FLOAT, &volume);
     model->prms.Volume = (double)volume;
+
+    int offsetIncluded = 0;
+//    dataset_grains.openAttribute("offsetIncluded").read(H5::PredType::NATIVE_INT, &offsetIncluded);
+
     file.close();
 
     // get block dimensions
@@ -61,16 +65,19 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     model->prms.ymin = boundaries.first.y();
     model->prms.xmax = boundaries.second.x();
     model->prms.ymax = boundaries.second.y();
+    spdlog::info("block extent x: [{}, {}], y: [{}, {}]", model->prms.xmin, model->prms.xmax, model->prms.ymin, model->prms.ymax);
 
 
     const double &h = model->prms.cellsize;
     const double box_x = model->prms.GridXTotal*h;
     const double length = model->prms.xmax - model->prms.xmin;
     const double x_offset = (box_x - length)/2;
-    const double y_offset = 2*h+0.55; // 0.5 offset is for buoyancy testing
+    const double y_offset = 2*h;
 
     Eigen::Vector2d offset(x_offset, y_offset);
-    model->gpu.hssoa.offsetBlock(offset);
+    if(!offsetIncluded) model->gpu.hssoa.offsetBlock(offset);
+    else spdlog::info("LoadRawPoints: not offsetting raw points");
+//    model->gpu.hssoa.addVelocityForTesting();
     model->gpu.hssoa.RemoveDisabledAndSort(model->prms.cellsize_inv, model->prms.GridY);
     model->gpu.hssoa.InitializeBlock();
 
@@ -87,9 +94,11 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
         model->prms.indenter_y = block_top + ht;
     else if(model->prms.SetupType == 1)
         model->prms.indenter_y = ceil(block_top/h)*h;
-
-    // for buoyancy testing
-    model->prms.indenter_x = model->prms.indenter_y = -1;
+    else
+    {
+        // for buoyancy testing
+        model->prms.indenter_x = model->prms.indenter_y = -1;
+    }
 
 
     model->prms.indenter_x_initial = model->prms.indenter_x;
@@ -97,7 +106,6 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
 
     // particle volume and mass
     model->prms.ParticleVolume = model->prms.Volume/nPoints;
-    model->prms.ParticleMass = model->prms.ParticleVolume * model->prms.Density;
     model->prms.ComputeHelperVariables();
 
     // allocate GPU partitions
@@ -109,7 +117,7 @@ void icy::SnapshotManager::LoadRawPoints(std::string fileName)
     model->Reset();
     model->Prepare();
 
-    spdlog::info("LoadRawPoints done; nPoitns {}",nPoints);
+    spdlog::info("LoadRawPoints done; nPoitns {}\n",nPoints);
 }
 
 

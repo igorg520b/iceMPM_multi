@@ -11,6 +11,11 @@ constexpr double coeff1 = 1.4142135623730950; // sqrt((6-d)/2.);
 constexpr double coeff1_inv = 0.7071067811865475;
 constexpr long long status_crushed = 0x10000;
 constexpr long long status_disabled = 0x20000;
+constexpr long long status_liquid = 0x40000;
+
+constexpr double wL = 0.6; // water level
+constexpr double waveLength = 3.0;
+
 
 __device__ uint8_t gpu_error_indicator;
 __constant__ icy::SimParams gprms;
@@ -31,7 +36,7 @@ __device__ Matrix2d KirchhoffStress_Wolper(const Matrix2d &F)
 
 __device__ Matrix2d Water(const double J)
 {
-    constexpr double gamma = 3;
+    constexpr double gamma = 5;
     const double &kappa = gprms.kappa;
 
     Matrix2d PFt = kappa*( 1.-pow(J,-gamma))*Matrix2d::Identity();
@@ -53,13 +58,12 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
     //const double &vol = gprms.ParticleVolume;
     const double &h = gprms.cellsize;
     const double &h_inv = gprms.cellsize_inv;
-    //const double &Dinv = gprms.Dp_inv;
-    const double &particle_mass = gprms.ParticleMass;
+    const int isLiquid = (int)((utility_data & status_liquid)>>18);
+    double particle_masses[2] {gprms.ParticleMass, gprms.WaterParticleMass};
+    const double particle_mass = particle_masses[isLiquid];
 
     const int &gridY = gprms.GridY;
-    //const int &gridXTotal = gprms.GridXTotal;
     const int &halo = gprms.GridHaloSize;
-
     const int &offset = gprms.gbOffset;
 
     // pull point data from SOA
@@ -77,8 +81,10 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
         }
     }
 
-//    Matrix2d PFt = Water(buffer_pts[pt_idx + pitch_pts*icy::SimParams::idx_Jp_inv]);
-    Matrix2d PFt = KirchhoffStress_Wolper(Fe);
+    Matrix2d PFt;
+    if(isLiquid) PFt = Water(buffer_pts[pt_idx + pitch_pts*icy::SimParams::idx_Jp_inv]);
+    else PFt = KirchhoffStress_Wolper(Fe);
+
     Matrix2d subterm2 = particle_mass*Bp - (gprms.dt_vol_Dpinv)*PFt;
 
     Eigen::Vector2i base_coord_i = (pos*h_inv - Vector2d::Constant(0.5)).cast<int>(); // coords of base grid node for point
@@ -116,72 +122,41 @@ __global__ void partition_kernel_p2g(const int gridX, const int gridX_offset, co
 }
 
 
-__global__ void partition_kernel_receive_halos_left(const int haloElementCount, const int gridX_partition,
-                                               const int pitch_grid, double *buffer_grid,
-                                               const double *halo0, const double *halo1)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if(idx >= haloElementCount) return;
-
-    const int &gridY = gprms.GridY;
-    for(int i=0; i<icy::SimParams::nGridArrays; i++)
-    {
-        buffer_grid[idx + i*pitch_grid] += halo0[idx + i*pitch_grid];
-//        buffer_grid[idx + i*pitch_grid + gridY*gridX_partition] += halo1[idx + i*pitch_grid];
-    }
-}
-
-__global__ void partition_kernel_receive_halos_right(const int haloElementCount, const int gridX_partition,
-                                               const int pitch_grid, double *buffer_grid,
-                                               const double *halo0, const double *halo1)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if(idx >= haloElementCount) return;
-
-    const int &gridY = gprms.GridY;
-    for(int i=0; i<icy::SimParams::nGridArrays; i++)
-    {
-//        buffer_grid[idx + i*pitch_grid] += halo0[idx + i*pitch_grid];
-        buffer_grid[idx + i*pitch_grid + gridY*gridX_partition] += halo1[idx + i*pitch_grid];
-    }
-}
 
 
 __device__ __host__ double FreeSurfaceElevation(double simulation_time, double x)
 {
-    double waveAmplitude = simulation_time < 5 ? simulation_time : (10-simulation_time);
-    if(simulation_time > 10) waveAmplitude = 0;
+    double waveAmplitude = simulation_time < 10 ? simulation_time : (20-simulation_time);
+    if(simulation_time > 20) waveAmplitude = 0;
     waveAmplitude*=0.07;
-    double waveLength = 4.0;
     double k = 2*icy::SimParams::pi/waveLength;
     double omega = k*0.75; // angular frequency
-    waveAmplitude = min(waveAmplitude, 0.4);
+    waveAmplitude = min(waveAmplitude, 0.2);
 
-    return  0.6 + waveAmplitude*cos(k*x - omega*simulation_time);
+    return  wL + waveAmplitude*cos(k*x - omega*simulation_time);
 }
 
 __device__ __host__ double FreeSurfaceElevationPrime(double simulation_time, double x)
 {
-    double waveAmplitude = simulation_time < 5 ? simulation_time : (10-simulation_time);
-    if(simulation_time > 10) waveAmplitude = 0;
+
+    double waveAmplitude = simulation_time < 10 ? simulation_time : (20-simulation_time);
+    if(simulation_time > 20) waveAmplitude = 0;
     waveAmplitude*=0.07;
-    double waveLength = 4.0;
     double k = 2*icy::SimParams::pi/waveLength;
     double omega = k*0.75; // angular frequency
-    waveAmplitude = min(waveAmplitude, 0.4);
+    waveAmplitude = min(waveAmplitude, 0.2);
 
     return waveAmplitude*sin(k*x - omega*simulation_time)*omega;
 }
 
 __device__ __host__ double FreeSurfaceHorizontalVelocity(double simulation_time, double x)
 {
-    double waveAmplitude = simulation_time < 5 ? simulation_time : (10-simulation_time);
-    if(simulation_time > 10) waveAmplitude = 0;
+    double waveAmplitude = simulation_time < 10 ? simulation_time : (20-simulation_time);
+    if(simulation_time > 20) waveAmplitude = 0;
     waveAmplitude*=0.07;
-    double waveLength = 4.0;
     double k = 2*icy::SimParams::pi/waveLength;
     double omega = k*0.75; // angular frequency
-    waveAmplitude = min(waveAmplitude, 0.4);
+    waveAmplitude = min(waveAmplitude, 0.2);
 
     return waveAmplitude*cos(k*x - omega*simulation_time)*omega;
 }
@@ -218,20 +193,20 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
 
     Vector2d velocity(vx, vy);
     velocity /= mass;
+    velocity[1] -= gprms.dt_Gravity;
 
 
+/*
     const double x = gnpos.x();
     const double y = gnpos.y();
 
-    const double wL = 0.6; // water level
     const double np = 4;
 
-    double A = simulation_time < 5 ? simulation_time : (10-simulation_time);
-    if(simulation_time > 10) A = 0;
+    double A = simulation_time < 10 ? simulation_time : (20-simulation_time);
+    if(simulation_time > 20) A = 0;
     A*=0.07;
-    A = min(A, 0.4);
+    A = min(A, 0.2);
 
-    double waveLength = 4.0;
     double k = 2*icy::SimParams::pi/waveLength;
     double omega = k*0.75; // angular frequency
 
@@ -239,31 +214,34 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
     double gy = (np/2)*pow(y-wL-A*cos(k*x- omega*simulation_time), np-1);
 
 
-    const double attenuation_coeff1h = 1e-5;
-    const double attenuation_coeff2h = 1e-3;
-    const double attenuation_coeff1v = 1e-5;
-    const double attenuation_coeff2v = 1e-3;
 
-    Vector2d vel2(FreeSurfaceHorizontalVelocity(simulation_time, gnpos.x()),
-                  FreeSurfaceElevationPrime(simulation_time, gnpos.x()));
-    Vector2d vd = velocity-vel2;
-
-    double attenuation_coeff_h = attenuation_coeff1h + abs(vd[0]) * attenuation_coeff2h;
-    double attenuation_coeff_v = attenuation_coeff1v + abs(vd[1]) * attenuation_coeff2v;
-    attenuation_coeff_h = min(max(attenuation_coeff_h,0.),1.);
-    attenuation_coeff_v = min(max(attenuation_coeff_v,0.),1.);
-
-    velocity[0] = (1-attenuation_coeff_h)*velocity[0] + attenuation_coeff_h*vel2[0];
-    velocity[1] = (1-attenuation_coeff_v)*velocity[1] + attenuation_coeff_v*vel2[1];
-
-    velocity[0] -= dt*gx*1e6;
-    velocity[1] -= dt*gy*1e6;
 
     const double waterLevel = FreeSurfaceElevation(simulation_time, gnpos.x());
     if(gnpos.y() >= waterLevel)
     {
+        const double attenuation_coeff1h = 1e-5;
+        const double attenuation_coeff2h = 1e-3;
+        const double attenuation_coeff1v = 1e-5;
+        const double attenuation_coeff2v = 1e-3;
+
+        Vector2d vel2(FreeSurfaceHorizontalVelocity(simulation_time, gnpos.x()),
+                      FreeSurfaceElevationPrime(simulation_time, gnpos.x()));
+        Vector2d vd = velocity-vel2;
+
+        double attenuation_coeff_h = attenuation_coeff1h + abs(vd[0]) * attenuation_coeff2h;
+        double attenuation_coeff_v = attenuation_coeff1v + abs(vd[1]) * attenuation_coeff2v;
+        attenuation_coeff_h = min(max(attenuation_coeff_h,0.),1.);
+        attenuation_coeff_v = min(max(attenuation_coeff_v,0.),1.);
+
+        velocity[0] = (1-attenuation_coeff_h)*velocity[0] + attenuation_coeff_h*vel2[0];
+        velocity[1] = (1-attenuation_coeff_v)*velocity[1] + attenuation_coeff_v*vel2[1];
+
         velocity[1] -= gprms.dt_Gravity;
     }
+
+    velocity[0] -= dt*gx*1e6;
+    velocity[1] -= dt*gy*1e6;
+*/
 
 /*
     const double wLPrime = ;
@@ -310,10 +288,10 @@ __global__ void partition_kernel_update_nodes(const Eigen::Vector2d indCenter,
 
     // attached bottom layer
     if(gi.y() <= 2) velocity.setZero();
-//    if(gi.y() <= 2) velocity[1] = 0;
-    else if(gi.y() >= gridY-4 && velocity[1]>0) velocity[1] = 0;
+//    if(gi.y() <= 2 && velocity[1]<0) velocity[1] = 0;
+    if(gi.y() >= gridY-3 && velocity[1]>0) velocity[1] = 0;
     if(gi.x() <= 2 && velocity[0]<0) velocity[0] = 0;
-    else if(gi.x() >= gridXTotal-4 && velocity[0]>0) velocity[0] = 0;
+    else if(gi.x() >= gridXTotal-3 && velocity[0]>0) velocity[0] = 0;
 
     // side boundary conditions would go here
 
@@ -340,6 +318,7 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePoint
     long long* ptr = reinterpret_cast<long long*>(&buffer_pts[pt_idx + pitch_pts*icy::SimParams::idx_utility_data]);
     p.utility_data = *ptr;
     if(p.utility_data & status_disabled) return; // point is disabled
+    bool isLiquid = p.utility_data & status_liquid;
 
     const int &halo = gprms.GridHaloSize;
     const double &h_inv = gprms.cellsize_inv;
@@ -396,16 +375,21 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePoint
     p.pos += p.velocity * dt;
     p.Fe = (Matrix2d::Identity() + dt*p.Bp) * p.Fe;     // p.Bp is the gradient of the velocity vector (it seems)
 
-//    p.Jp_inv *= (Matrix2d::Identity() + dt*p.Bp).determinant();  // for water model
-
-    ComputePQ(p, kappa, mu);    // pre-computes USV, p, q, etc.
-
-    if(!(p.utility_data & status_crushed)) CheckIfPointIsInsideFailureSurface(p);
-    if(p.utility_data & status_crushed)
+    if(isLiquid)
     {
-        ComputeSVD(p, kappa, mu);    // pre-computes USV, p, q, etc.
-        Wolper_Drucker_Prager(p);
+        p.Jp_inv *= (Matrix2d::Identity() + dt*p.Bp).determinant();  // for water model
     }
+    else
+    {
+        ComputePQ(p, kappa, mu);    // pre-computes USV, p, q, etc.
+        if(!(p.utility_data & status_crushed)) CheckIfPointIsInsideFailureSurface(p);
+        if(p.utility_data & status_crushed)
+        {
+            ComputeSVD(p, kappa, mu);    // pre-computes USV, p, q, etc.
+            Wolper_Drucker_Prager(p);
+        }
+    }
+
 
     // distribute the values of p back into GPU memory: pos, velocity, BP, Fe, Jp_inv, PQ
     for(int i=0; i<icy::SimParams::dim; i++)
@@ -431,7 +415,6 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePoint
 
     // check if a points needs to be transferred to adjacent partition
     int base_coord_x = (int)(p.pos.x()*h_inv - 0.5); // updated after the point has moved
-
 
     // only tranfer the points if this feature is enabled this particular step
     constexpr int fly_threshold = 3;
@@ -477,6 +460,29 @@ __global__ void partition_kernel_g2p(const bool recordPQ, const bool enablePoint
         }
     }
 }
+
+__global__ void partition_kernel_receive_halos_left(const int haloElementCount, const int gridX_partition,
+                                                    const int pitch_grid, double *buffer_grid,
+                                                    const double *halo0, const double *halo1)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx >= haloElementCount) return;
+    const int &gridY = gprms.GridY;
+    for(int i=0; i<icy::SimParams::nGridArrays; i++)
+        buffer_grid[idx + i*pitch_grid] += halo0[idx + i*pitch_grid];
+}
+
+__global__ void partition_kernel_receive_halos_right(const int haloElementCount, const int gridX_partition,
+                                                     const int pitch_grid, double *buffer_grid,
+                                                     const double *halo0, const double *halo1)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx >= haloElementCount) return;
+    const int &gridY = gprms.GridY;
+    for(int i=0; i<icy::SimParams::nGridArrays; i++)
+        buffer_grid[idx + i*pitch_grid + gridY*gridX_partition] += halo1[idx + i*pitch_grid];
+}
+
 
 __device__ void PreparePointForTransfer(const int pt_idx, const int index_in_transfer_buffer,
                                         double *point_transfer_buffer, const int pitch_pts,

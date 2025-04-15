@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <filesystem>
+#include <algorithm>
 
 #include <H5Cpp.h>
 #include <gmsh.h>
@@ -19,6 +20,77 @@ void GrainProcessor2D::generate_block_and_write(float scale, float bx, float by,
     IdentifyGrains(scale);
     Write_HDF5(outputFile);
 }
+
+void GrainProcessor2D::generate_floe_and_write(float scale, float bx, float by, int n, int grid,
+                                               std::string msh, std::string outputFile)
+{
+    LoadMSH(msh);
+    GenerateFloe(bx, by, n, grid);
+    IdentifyGrains(scale);
+
+    for(int i=0;i<llGrainID.size();i++)
+    {
+        double y = coordinates[1][i];
+        if(y<waterLevel) llGrainID[i] |= status_liquid;
+    }
+
+    Write_HDF5(outputFile, 1);
+}
+
+void GrainProcessor2D::GenerateFloe(float dx, float dy, int n, int grid)
+{
+    constexpr float magic_constant = 0.656;
+    volume = dx*dy;
+
+    // fill the whole space
+    const float kRadius = sqrt(magic_constant*volume/n);
+
+    const std::array<float, 2>kXMin{0, 0};
+    const std::array<float, 2>kXMax{dx, dy};
+    buffer = thinks::PoissonDiskSampling(kRadius, kXMin, kXMax);
+    spdlog::info("buffer before carving: {}", buffer.size());
+
+    const float cellsize = dx/(float)grid;
+    const float cellsize_inv = (float)grid/dx;
+    const int waterLevelCell = (int)(waterLevel/cellsize);
+    const int block_height_cells = (int)(0.075/cellsize);
+
+    auto remove_result = std::remove_if(buffer.begin(), buffer.end(),[=](std::array<float,2> pt){
+        Eigen::Vector2f coords (pt[0],pt[1]);
+        Eigen::Vector2i gcoords = (coords*cellsize_inv).cast<int>();
+        if(gcoords.x() < 2 || gcoords.y() < 2 || gcoords.x() >= grid-3) return true;
+        if(gcoords.y() < waterLevelCell) return false;
+        else if(gcoords.y() == waterLevelCell) return true;
+        else if(gcoords.y() > waterLevelCell && gcoords.y() <= waterLevelCell+block_height_cells)
+        {
+            if(gcoords.x() < 100 || gcoords.x() >= grid-101) return true;
+            else return false;
+        }
+        return true;
+
+
+    });
+
+
+    buffer.erase(remove_result, buffer.end());
+    spdlog::info("buffer after carving: {}", buffer.size());
+
+
+
+    // copy to coordinates buffer
+    coordinates[0].resize(buffer.size());
+    coordinates[1].resize(buffer.size());
+    for(int i=0;i<buffer.size();i++)
+    {
+        coordinates[0][i] = buffer[i][0];
+        coordinates[1][i] = buffer[i][1];
+    }
+
+    volume = cellsize*cellsize*(waterLevelCell*(grid-4) + block_height_cells*(grid-200));
+}
+
+
+
 
 
 void GrainProcessor2D::LoadMSH(std::string fileName)
@@ -132,34 +204,9 @@ void GrainProcessor2D::LoadMSH(std::string fileName)
     gmsh::clear();
 }
 
-void GrainProcessor2D::Write_HDF5(std::string fileName)
+void GrainProcessor2D::Write_HDF5(std::string fileName, int OffsetIncluded)
 {
     H5::H5File file(fileName, H5F_ACC_TRUNC);
-
-/*
-    hsize_t dims_grains[1] = {grainID.size()};
-    H5::DataSpace dataspace_points_grains(1, dims_grains);
-    H5::DataSet dataset_grainids = file.createDataSet("GrainIDs", H5::PredType::NATIVE_INT16, dataspace_points_grains);
-    dataset_grainids.write(grainID.data(), H5::PredType::NATIVE_INT16);
-
-    hsize_t dims_points[2] = {buffer.size(), 2};
-    H5::DataSpace dataspace_points(2, dims_points);
-    hsize_t chunk_dims[2] = {1024*1024,2};
-    if(chunk_dims[0] > buffer.size()) chunk_dims[0] = std::max(buffer.size()/10,(size_t)1);
-    spdlog::info("chunk {}; dims_pts {}", chunk_dims[0], dims_points[0]);
-    H5::DSetCreatPropList proplist;
-    proplist.setChunk(2, chunk_dims);
-    proplist.setDeflate(7);
-    H5::DataSet dataset_points = file.createDataSet("Points_Raw_2D", H5::PredType::NATIVE_FLOAT, dataspace_points, proplist);
-    dataset_points.write(buffer.data(), H5::PredType::NATIVE_FLOAT);
-
-    // write volume as attribute
-    hsize_t att_dim = 1;
-    H5::DataSpace att_dspace(1, &att_dim);
-    H5::Attribute att_volume = dataset_grainids.createAttribute("volume", H5::PredType::NATIVE_FLOAT, att_dspace);
-    att_volume.write(H5::PredType::NATIVE_FLOAT, &volume);
-    spdlog::info("volume written {}",volume);
-*/
 
     hsize_t dims_grains[1] = {llGrainID.size()};
     H5::DataSpace dataspace_points_grains(1, dims_grains);
@@ -183,6 +230,9 @@ void GrainProcessor2D::Write_HDF5(std::string fileName)
     H5::Attribute att_volume = dataset_grainids.createAttribute("volume", H5::PredType::NATIVE_FLOAT, att_dspace);
     att_volume.write(H5::PredType::NATIVE_FLOAT, &volume);
     spdlog::info("volume written {}",volume);
+
+    H5::Attribute att_offsetIncluded = dataset_grainids.createAttribute("offsetIncluded", H5::PredType::NATIVE_INT, att_dspace);
+    att_offsetIncluded.write(H5::PredType::NATIVE_INT, &OffsetIncluded);
 
     file.close();
 }

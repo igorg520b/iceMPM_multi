@@ -50,9 +50,12 @@ add_executable(cmm
     simulation/snapshotmanager.cpp
     simulation/gpu_partition.h
     simulation/gpu_partition.cu
-    simulation/host_side_soa.h
-    simulation/host_side_soa.cpp
     simulation/kernels.cuh
+
+    simulation/hssoa/host_side_soa.h
+    simulation/hssoa/host_side_soa.cpp
+    simulation/hssoa/proxypoint2d.h
+    simulation/hssoa/proxypoint2d.cpp
 )
 
 set_target_properties(cmm PROPERTIES CUDA_ARCHITECTURES "80")
@@ -67,7 +70,7 @@ else()
     target_link_libraries(cmm PRIVATE spdlog::spdlog)
 endif()
 
-target_include_directories(cmm PRIVATE simulation)
+target_include_directories(cmm PRIVATE simulation simulation/hssoa)
 target_link_libraries(cmm PRIVATE Eigen3::Eigen)
 
 # HDF5
@@ -137,8 +140,11 @@ if(BUILD_GUI_VERSION)
         simulation/snapshotmanager.h
         simulation/snapshotmanager.cpp
 
-        simulation/host_side_soa.h
-        simulation/host_side_soa.cpp
+        simulation/hssoa/host_side_soa.h
+        simulation/hssoa/host_side_soa.cpp
+        simulation/hssoa/proxypoint2d.h
+        simulation/hssoa/proxypoint2d.cpp
+
         simulation/gpu_partition.h
         simulation/gpu_partition.cu
         simulation/kernels.cuh
@@ -148,7 +154,7 @@ if(BUILD_GUI_VERSION)
     set_target_properties(iceMPM_GUI_m PROPERTIES CUDA_ARCHITECTURES "80")
     set_target_properties(iceMPM_GUI_m PROPERTIES CUDA_SEPARABLE_COMPILATION ON CUDA_RESOLVE_DEVICE_SYMBOLS ON)
 
-    target_include_directories(iceMPM_GUI_m PRIVATE gui gui/windows gui/vtk simulation)
+    target_include_directories(iceMPM_GUI_m PRIVATE gui gui/windows gui/vtk simulation simulation/hssoa)
     target_link_libraries(iceMPM_GUI_m PRIVATE Qt5::Widgets Qt5::Core)
 
     # Eigen
@@ -237,19 +243,8 @@ if(BUILD_GENERATOR)
 
 add_executable(GrainIdentifier
     generator/main.cpp
-    generator/mainwindow.cpp
-    generator/mainwindow.h
-    generator/mainwindow.ui
 
-    generator/grainprocessor.h
-    generator/grainprocessor.cpp
-    generator/vtkrepresentation.h
-    generator/vtkrepresentation.cpp
-    generator/bvh/bvhn.cpp
-    generator/bvh/bvhn.h
-    generator/bvh/kdop24.cpp
-    generator/bvh/kdop24.h
-    generator/bvh/SimplePool.h
+    generator/2d/bvh2d/SimplePool.h
     generator/2d/grainprocessor2d.h
     generator/2d/grainprocessor2d.cpp
     generator/2d/bvh2d/bvhn2d.h
@@ -263,12 +258,11 @@ target_link_libraries(GrainIdentifier PRIVATE gomp)
 
 target_link_libraries(GrainIdentifier PRIVATE spdlog::spdlog)
 target_link_libraries(GrainIdentifier PRIVATE ${HDF5_LIBRARIES})
-target_link_libraries(GrainIdentifier PRIVATE ${VTK_LIBRARIES})
 target_link_libraries(GrainIdentifier PRIVATE Eigen3::Eigen)
 target_link_libraries(GrainIdentifier PRIVATE gmsh)
 
 target_include_directories(GrainIdentifier PRIVATE ${HDF5_INCLUDE_DIRS})
 target_include_directories(GrainIdentifier PRIVATE "/home/s2/Projects-other/gmsh/api")
-target_include_directories(GrainIdentifier PRIVATE generator/bvh generator/poisson_disk_sampling generator/2d generator/2d/bvh2d)
+target_include_directories(GrainIdentifier PRIVATE generator/poisson_disk_sampling generator/2d generator/2d/bvh2d)
 
 endif()

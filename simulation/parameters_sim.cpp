@@ -19,6 +19,7 @@ void icy::SimParams::Reset()
     PoissonsRatio = 0.3;
     Gravity = 9.81;
     Density = 916;
+    WaterDensity = 1000;
 
     IndDiameter = 0.324;
     IndVelocity = 0.2;
@@ -73,6 +74,7 @@ std::string icy::SimParams::ParseFile(std::string fileName)
     doc.Parse(strConfigFile.data());
     if(!doc.IsObject()) throw std::runtime_error("configuration file is not JSON");
 
+    if(doc.HasMember("SetupType")) SetupType = doc["SetupType"].GetInt();
     if(doc.HasMember("InitialTimeStep")) InitialTimeStep = doc["InitialTimeStep"].GetDouble();
     if(doc.HasMember("YoungsModulus")) YoungsModulus = doc["YoungsModulus"].GetDouble();
     if(doc.HasMember("GridX")) GridXTotal = doc["GridX"].GetInt();
@@ -132,6 +134,9 @@ void icy::SimParams::ComputeLame()
 
 void icy::SimParams::ComputeHelperVariables()
 {
+    ParticleMass = ParticleVolume * Density;
+    WaterParticleMass = ParticleVolume * WaterDensity;
+
     UpdateEveryNthStep = (int)(1.f/(200*InitialTimeStep));
     cellsize = GridXDimension/GridXTotal;
     cellsize_inv = 1./cellsize;

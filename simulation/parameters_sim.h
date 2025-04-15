@@ -47,7 +47,7 @@ public:
     double SimulationTime;
 
     // material properties
-    double Gravity, Density, PoissonsRatio, YoungsModulus;
+    double Gravity, Density, WaterDensity, PoissonsRatio, YoungsModulus;
     double lambda, mu, kappa; // Lame
 
     double IceCompressiveStrength, IceTensileStrength, IceShearStrength, IceTensileStrength2;
@@ -62,7 +62,7 @@ public:
     double xmin, xmax, ymin, ymax;            // bounding box of the material
     int nxmin, nxmax, nymin, nymax;         // same, but nuber of grid cells
 
-    double ParticleVolume, ParticleMass, ParticleViewSize;
+    double ParticleVolume, ParticleMass, WaterParticleMass, ParticleViewSize;
 
     double indenter_x, indenter_x_initial, indenter_y, indenter_y_initial;
     double Volume;  // total volume (area) of the object

@@ -10,11 +10,20 @@
 icy::VisualRepresentation::VisualRepresentation()
 {
     int nLut = sizeof lutArrayTemperatureAdj / sizeof lutArrayTemperatureAdj[0];
-//    hueLut->SetNumberOfTableValues(nLut);
-//    for ( int i=0; i<nLut; i++)
-//        hueLut->SetTableValue(i, lutArrayTemperatureAdj[i][0],
-//                              lutArrayTemperatureAdj[i][1],
-//                              lutArrayTemperatureAdj[i][2], 1.0);
+    hueLut_temperature->SetNumberOfTableValues(nLut);
+    for ( int i=0; i<nLut; i++)
+        hueLut_temperature->SetTableValue(i, lutArrayTemperatureAdj[i][0],
+                              lutArrayTemperatureAdj[i][1],
+                              lutArrayTemperatureAdj[i][2], 1.0);
+
+
+    nLut = sizeof(lutSouthwest)/sizeof lutSouthwest[0];
+    hueLut_Southwest->SetNumberOfTableValues(nLut);
+    for ( int i=0; i<nLut; i++)
+        hueLut_Southwest->SetTableValue(i, lutSouthwest[i][0],
+                                          lutSouthwest[i][1],
+                                          lutSouthwest[i][2], 1.0);
+
 
     nLut = sizeof lutArrayPastel / sizeof lutArrayPastel[0];
     hueLut_pastel->SetNumberOfTableValues(nLut);
@@ -35,7 +44,7 @@ icy::VisualRepresentation::VisualRepresentation()
     hueLut_four->SetTableValue(0, 0.3, 0.3, 0.3);
     hueLut_four->SetTableValue(1, 1.0, 0, 0);
     hueLut_four->SetTableValue(2, 0, 1.0, 0);
-    hueLut_four->SetTableValue(3, 0, 0, 1.0);
+    hueLut_four->SetTableValue(3, 0.2, 0.2, 0.85);
     hueLut_four->SetTableValue(4, 0, 0.5, 0.5);
     hueLut_four->SetTableRange(0,4);
 
@@ -279,7 +288,10 @@ void icy::VisualRepresentation::SynchronizeValues()
             SOAIterator s = model->gpu.hssoa.begin()+i;
             if(s->getDisabledStatus()) continue;
             bool isCrushed = s->getCrushedStatus();
-            visualized_values->SetValue((vtkIdType)activePtsCount++, (float)(isCrushed ? 1 : 0));
+            float value = 0;
+            if(isCrushed) value = 1;
+            if(s->getLiquidStatus()) value = 3;
+            visualized_values->SetValue((vtkIdType)activePtsCount++, (float)value);
         }
         if(activePtsCount != model->prms.nPtsTotal) throw std::runtime_error("SynchronizeValues() point count mismatch");
         visualized_values->Modified();
@@ -324,6 +336,33 @@ void icy::VisualRepresentation::SynchronizeValues()
             bool isCrushed = s->getCrushedStatus();
             if(isCrushed) grain = 41;
             visualized_values->SetValue((vtkIdType)activePtsCount++, (float)grain);
+        }
+        if(activePtsCount != model->prms.nPtsTotal) throw std::runtime_error("SynchronizeValues() point count mismatch");
+        visualized_values->Modified();
+    }
+    else if(VisualizingVariable == VisOpt::velocity)
+    {
+        scalarBar->VisibilityOn();
+        points_mapper->ScalarVisibilityOn();
+        points_mapper->SetColorModeToMapScalars();
+        points_mapper->UseLookupTableScalarRangeOn();
+        points_mapper->SetLookupTable(hueLut_Southwest);
+        scalarBar->SetLookupTable(hueLut_Southwest);
+//        hueLut_temperature->SetTableRange(0, 7.0);
+        hueLut_Southwest->SetRange(0, 2.0);
+
+        //points_mapper->SetScalarRange(11,-1);
+        visualized_values->SetNumberOfValues(model->prms.nPtsTotal);
+        activePtsCount = 0;
+        for(int i=0;i<model->gpu.hssoa.size;i++)
+        {
+            SOAIterator s = model->gpu.hssoa.begin()+i;
+            if(s->getDisabledStatus()) continue;
+            Eigen::Vector2d vel = s->getVelocity();
+            float value = (float)vel.norm();
+            if(value>=1.9) value=1.9;
+            if(!s->getLiquidStatus()) value = 5;
+            visualized_values->SetValue((vtkIdType)activePtsCount++, (float)value);
         }
         if(activePtsCount != model->prms.nPtsTotal) throw std::runtime_error("SynchronizeValues() point count mismatch");
         visualized_values->Modified();

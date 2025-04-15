@@ -75,7 +75,7 @@ MainWindow::MainWindow(QWidget *parent)
     renderer->AddActor(representation.actor_grid);
     renderer->AddActor(representation.actor_partitions);
     renderer->AddActor(representation.actor_indenter);
-    renderer->AddActor(representation.actor_water);
+//    renderer->AddActor(representation.actor_water);
     renderer->AddActor(representation.actorText);
     renderer->AddActor(representation.scalarBar);
 
